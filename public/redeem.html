@@ -145,91 +145,45 @@ h3 {
 </div>
 
 <script>
-const LIFF_ID = "2008944819-N4ozrStq";
-const API = "";
-
-let balance = 0;
-let input = "";
-let userId = "";
-
-function show(id) {
-  document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
-  document.getElementById(id).classList.add("active");
-}
-
 async function main() {
   try {
-    show("step-connect");
+    alert("STEP 1: start main");
 
-    await liff.init({ liffId: LIFF_ID });
+    await liff.init({ liffId: "2008944819-N4ozrStq" });
+    alert("STEP 2: liff.init OK");
 
     if (!liff.isInClient()) {
-      alert("กรุณาเปิดผ่าน LINE เท่านั้น");
+      alert("STEP 3: NOT in LINE client");
       return;
     }
+    alert("STEP 3: in LINE client");
 
     if (!liff.isLoggedIn()) {
+      alert("STEP 4: NOT logged in");
       liff.login({ redirectUri: location.href });
       return;
     }
+    alert("STEP 4: logged in");
 
-    show("step-load");
-
+    alert("STEP 5: before getProfile");
     const profile = await liff.getProfile();
+    alert("STEP 6: getProfile OK");
+
     userId = profile.userId;
+    alert("STEP 7: userId = " + userId);
 
     const res = await fetch(`/balance?userId=${userId}`);
-    if (!res.ok) throw new Error("balance error");
+    alert("STEP 8: fetch balance status = " + res.status);
 
     const data = await res.json();
-    balance = data.balance || 0;
+    alert("STEP 9: balance = " + data.balance);
 
-    document.getElementById("balancePoint").innerText = balance;
+    document.getElementById("balancePoint").innerText = data.balance;
     show("step-redeem");
 
   } catch (err) {
-    console.error("LIFF ERROR:", err);
-    alert("เกิดข้อผิดพลาด กรุณาปิดแล้วเปิดใหม่จาก Rich Menu");
-    liff.closeWindow();
-  }
-}
-
-/* ===== keypad ===== */
-function add(n) { input += n; update(); }
-function back() { input = input.slice(0, -1); update(); }
-function clearAll() { input = ""; update(); }
-
-function update() {
-  const p = Number(input || 0);
-  document.getElementById("usePoint").innerText = p;
-  document.getElementById("useMoney").innerText = p;
-  document.getElementById("confirmBtn").disabled = p <= 0 || p > balance;
-}
-
-/* ===== redeem ===== */
-async function confirmRedeem() {
-  try {
-    const result = await liff.scanCodeV2();
-    const qrData = JSON.parse(result.value);
-
-    const res = await fetch(`/redeem`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        line_user_id: userId,
-        use_point: Number(input),
-        nonce: qrData.nonce
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-
-    alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
-    liff.closeWindow();
-
-  } catch (err) {
-    alert("ยกเลิกหรือเกิดข้อผิดพลาด");
+    alert("❌ ERROR: " + err.message);
+    console.error(err);
     liff.closeWindow();
   }
 }
