@@ -161,7 +161,48 @@ function show(id) {
 }
 
 async function main() {
+  // 1️⃣ เริ่มต้น
   show("step-connect");
+
+  // 2️⃣ กันค้าง
+  const timeout = setTimeout(() => {
+    if (document.getElementById("step-connect").classList.contains("active")) {
+      alert("เชื่อมต่อไม่สำเร็จ กรุณาเปิดใหม่");
+      liff.closeWindow();
+    }
+  }, 8000);
+
+  // 3️⃣ init LIFF
+  await liff.init({ liffId: "2008944819-N4ozrStq" });
+
+  if (!liff.isLoggedIn()) {
+    liff.login({ redirectUri: location.href });
+    return;
+  }
+
+  clearTimeout(timeout); // ✅ สำคัญมาก
+
+  // 4️⃣ โหลดข้อมูล
+  show("step-load");
+
+  const profile = await liff.getProfile();
+  userId = profile.userId; // global
+
+  const res = await fetch(`/balance?userId=${userId}`);
+  if (!res.ok) {
+    alert("โหลดแต้มไม่สำเร็จ");
+    liff.closeWindow();
+    return;
+  }
+
+  const data = await res.json();
+  balance = data.balance;
+
+  document.getElementById("balancePoint").innerText = balance;
+
+  // 5️⃣ พร้อมใช้งาน
+  show("step-redeem");
+}  show("step-connect");
 
   await liff.init({ liffId: "2008944819-N4ozrStq" });
 
@@ -171,6 +212,13 @@ async function main() {
   }
 
   show("step-load");
+
+  setTimeout(() => {
+  if (document.getElementById("step-connect").classList.contains("active")) {
+    alert("เชื่อมต่อไม่สำเร็จ กรุณาเปิดใหม่");
+    liff.closeWindow();
+  }
+  }, 8000);
 
   const profile = await liff.getProfile();
   userId = profile.userId; // ใช้ตัว global  // ✅ ตรงนี้แหละ
