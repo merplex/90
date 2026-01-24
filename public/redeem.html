@@ -221,12 +221,13 @@ async function confirmRedeem() {
   }
 
   try {
-    const result = await liff.scanCodeV2();
-    const qrData = JSON.parse(result.value);
-    await redeemPoint(qrData);
-  } catch {
-    alert("ยกเลิกการสแกน");
-  }
+  const result = await liff.scanCodeV2();
+  const qrData = JSON.parse(result.value);
+  await redeemPoint(qrData);
+} catch (err) {
+  alert("ยกเลิกการสแกน");
+  liff.closeWindow(); // 👈 สำคัญมาก
+}
 }
 
 async function redeemPoint(qrData) {
