@@ -234,6 +234,9 @@ app.get("/balance", async (req, res) => {
 /* =======================
    แทรก REDEEM LOGIC ที่นี่
 ======================= */
+app.get("/redeem.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "redeem.html"));
+});
 app.post("/redeem", async (req, res) => {
   const { line_user_id, nonce } = req.body;
 
