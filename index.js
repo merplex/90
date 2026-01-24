@@ -200,7 +200,7 @@ app.post("/create-qr", async (req, res) => {
 });
 
 /* =======================
-   6.5 GET BALANCE  👈 เพิ่มตรงนี้
+   6.5 GET BALANCE ดึงแต้ม 👈 เพิ่มตรงนี้
 ======================= */
 app.get("/balance", async (req, res) => {
   const { userId } = req.query;
