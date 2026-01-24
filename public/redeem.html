@@ -173,7 +173,7 @@ async function main() {
   show("step-load");
 
   const profile = await liff.getProfile();
-  const userId = profile.userId;   // ✅ ตรงนี้แหละ
+  userId = profile.userId; // ใช้ตัว global  // ✅ ตรงนี้แหละ
 
   // ✅ ตรงนี้คือ GET /balance ที่เจงถาม
   const res = await fetch(`/balance?userId=${userId}`);
