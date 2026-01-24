@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<title>ใช้แต้ม</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f7f7f7;
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 20px;
+    max-width: 360px;
+    margin: auto;
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+  }
+
+  .step {
+    display: none;
+  }
+
+  .step.active {
+    display: block;
+  }
+
+  .spinner {
+    font-size: 48px;
+    animation: spin 1.2s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .point {
+    font-size: 32px;
+    font-weight: bold;
+    color: #2e7d32;
+  }
+
+  .money {
+    font-size: 20px;
+    margin-top: 8px;
+    color: #555;
+  }
+
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .numpad button {
+    padding: 18px;
+    font-size: 20px;
+    border-radius: 12px;
+    border: none;
+    background: #eee;
+  }
+
+  .numpad button:active {
+    background: #ccc;
+  }
+
+  .confirm {
+    margin-top: 20px;
+    padding: 16px;
+    width: 100%;
+    font-size: 18px;
+    border-radius: 12px;
+    border: none;
+    background: #06c755;
+    color: white;
+  }
+
+  .confirm:disabled {
+    background: #aaa;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+  <!-- STEP 1 : CONNECT -->
+  <div id="step-connect" class="step active">
+    <div class="spinner">🔄</div>
+    <p>กำลังเชื่อมต่อ LINE</p>
+  </div>
+
+  <!-- STEP 2 : LOAD POINT -->
+  <div id="step-load" class="step">
+    <div class="spinner">⏳</div>
+    <p>กำลังตรวจสอบแต้ม</p>
+  </div>
+
+  <!-- STEP 3 : REDEEM -->
+  <div id="step-redeem" class="step">
+    <h3>แต้มคงเหลือ</h3>
+    <div class="point" id="balancePoint">0</div>
+
+    <div class="money">
+      ใช้แต้ม: <b id="usePoint">0</b><br>
+      = เงิน <b id="useMoney">0</b> บาท
+    </div>
+
+    <div class="numpad">
+      <button onclick="add(1)">1</button>
+      <button onclick="add(2)">2</button>
+      <button onclick="add(3)">3</button>
+      <button onclick="add(4)">4</button>
+      <button onclick="add(5)">5</button>
+      <button onclick="add(6)">6</button>
+      <button onclick="add(7)">7</button>
+      <button onclick="add(8)">8</button>
+      <button onclick="add(9)">9</button>
+      <button onclick="clearAll()">C</button>
+      <button onclick="add(0)">0</button>
+      <button onclick="back()">←</button>
+    </div>
+
+    <button class="confirm" id="confirmBtn" onclick="confirmRedeem()">
+    ยืนยันใช้แต้ม
+    </button>
+  </div>
+
+</div>
+
+<script>
+let balance = 0;     // แต้มคงเหลือ
+let input = "";     // แต้มที่กรอก
+
+function show(id) {
+  document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+async function main() {
+  show("step-connect");
+
+  await liff.init({ liffId: "2008944819-N4ozrStq" });
+
+  if (!liff.isLoggedIn()) {
+    liff.login({ redirectUri: location.href });
+    return;
+  }
+
+  show("step-load");
+
+  const profile = await liff.getProfile();
+  const userId = profile.userId;
+
+  // 🔴 mock แต้มก่อน (เดี๋ยวเปลี่ยนเป็น fetch จริง)
+  balance = 120;
+
+  document.getElementById("balancePoint").innerText = balance;
+  show("step-redeem");
+}
+
+function add(n) {
+  input += n;
+  update();
+}
+
+function back() {
+  input = input.slice(0, -1);
+  update();
+}
+
+function clearAll() {
+  input = "";
+  update();
+}
+
+function update() {
+  const p = Number(input || 0);
+  document.getElementById("usePoint").innerText = p;
+  document.getElementById("useMoney").innerText = p;
+
+  document.getElementById("confirmBtn").disabled =
+    p <= 0 || p > balance;
+}
+
+async function confirmRedeem() {
+  if (!liff.isInClient()) {
+    alert("กรุณาเปิดผ่าน LINE");
+    return;
+  }
+
+  try {
+    // 👉 เปิดกล้องสแกน QR
+    const result = await liff.scanCodeV2();
+
+    // ข้อมูลที่ได้จาก QR (เป็น string)
+    const qrText = result.value;
+    console.log("QR:", qrText);
+
+    const qrData = JSON.parse(qrText);
+
+    // ส่งไป backend
+    await redeemPoint(qrData);
+
+  } catch (err) {
+    alert("ยกเลิกการสแกน");
+  }
+}
+
+async function redeemPoint(qrData) {
+  const profile = await liff.getProfile();
+
+  const res = await fetch("/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      line_user_id: profile.userId,
+      use_point: Number(input),
+      machine_id: qrData.machine_id,
+      amount: qrData.amount,
+      nonce: qrData.nonce,
+      expire: qrData.expire
+    })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.error || "ใช้แต้มไม่สำเร็จ");
+    return;
+  }
+
+  alert(
+    `🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`
+  );
+
+  liff.closeWindow();
+}
+
+  // เฟสหน้า: fetch /redeem
+  // แล้วค่อย closeWindow
+  // liff.closeWindow();
+
+main();
+</script>
+
+</body>
+</html>

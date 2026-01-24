@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>รับแต้ม</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+  <h2>กำลังตรวจสอบ QR...</h2>
+
+  <script>
+  async function main() {
+    // 1. init LIFF (ครั้งเดียว)
+    await liff.init({ liffId: "2008944819-hKnqP5yy" });
+
+    // 2. ถ้ายังไม่ login → login ก่อน
+    if (!liff.isLoggedIn()) {
+      liff.login({ redirectUri: window.location.href });
+      return;
+    }
+
+    // 3. ดึง token จาก URL
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+
+    if (!token) {
+      document.body.innerHTML = "❌ ไม่พบ token";
+      return;
+    }
+
+    // 4. ดึง userId จาก LINE
+    const profile = await liff.getProfile();
+    const userId = profile.userId;
+
+    // แสดงสถานะระหว่างทำงาน
+    document.body.innerHTML = "<h3>กำลังรับแต้ม...</h3>";
+
+    // 5. เรียก backend เพื่อใช้ QR
+    const res = await fetch(
+      `/liff/consume?token=${token}&userId=${userId}`
+    );
+    const html = await res.text();
+
+    // 6. แสดงผลลัพธ์สั้น ๆ
+    document.body.innerHTML = html;
+
+    // 7. รอแป๊บเดียว แล้วปิดหน้า LIFF อัตโนมัติ
+    setTimeout(() => {
+      liff.closeWindow();
+    }, 1500); // 1.5 วินาที
+  }
+
+    main();
+  </script>
+</body>
+</html>
