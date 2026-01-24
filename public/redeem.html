@@ -3,80 +3,95 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport"
-  content="width=device-width,
-           initial-scale=1,
-           maximum-scale=1,
-           user-scalable=no,
-           viewport-fit=cover">
-
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>ใช้แต้ม</title>
 
+<!-- LIFF SDK -->
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
 <style>
-* {
-  box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-}
-body {
-  margin: 0;
-  padding: 16px;
-  background: #f4f6f8;
-  display: flex;
-  justify-content: center;
-}
-.card {
-  background: #fff;
-  border-radius: 20px;
-  padding: 24px;
-  width: 100%;
-  max-width: 420px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.08);
-}
-.step { display: none; }
-.step.active { display: block; }
-.spinner {
-  font-size: 42px;
-  margin: 40px 0;
-  text-align: center;
-}
-.point {
-  font-size: 42px;
-  font-weight: bold;
-  color: #06c755;
-}
-.money {
-  margin: 12px 0;
-  color: #555;
-}
-.numpad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-  margin-top: 20px;
-}
-.numpad button {
-  height: 72px;
-  font-size: 26px;
-  border-radius: 18px;
-  border: none;
-  background: #f1f3f5;
-  font-weight: 600;
-}
-.confirm {
-  margin-top: 24px;
-  height: 60px;
-  width: 100%;
-  font-size: 20px;
-  border-radius: 16px;
-  border: none;
-  background: #06c755;
-  color: white;
-  font-weight: bold;
-}
-.confirm:disabled {
-  background: #bdbdbd;
-}
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f4f6f8;
+    margin: 0;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 20px;
+    padding: 24px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.08);
+  }
+
+  .step { display: none; }
+  .step.active { display: block; }
+
+  .spinner {
+    font-size: 48px;
+    animation: spin 1.2s linear infinite;
+    margin: 40px 0;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  h3 {
+    margin-top: 0;
+    font-size: 18px;
+    color: #333;
+  }
+
+  .point {
+    font-size: 40px;
+    font-weight: bold;
+    color: #06c755;
+    margin: 8px 0;
+  }
+
+  .money {
+    font-size: 16px;
+    color: #555;
+    margin-bottom: 16px;
+  }
+
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  .numpad button {
+    height: 72px;
+    font-size: 26px;
+    border-radius: 18px;
+    border: none;
+    background: #f1f3f5;
+    font-weight: 600;
+  }
+
+  .confirm {
+    margin-top: 24px;
+    height: 60px;
+    width: 100%;
+    font-size: 20px;
+    border-radius: 16px;
+    border: none;
+    background: #06c755;
+    color: white;
+    font-weight: bold;
+  }
+
+  .confirm:disabled {
+    background: #bdbdbd;
+  }
 </style>
 </head>
 
@@ -84,19 +99,19 @@ body {
 
 <div class="card">
 
-  <!-- CONNECT -->
+  <!-- STEP 1 -->
   <div id="step-connect" class="step active">
     <div class="spinner">🔄</div>
-    <p style="text-align:center">กำลังเชื่อมต่อ LINE</p>
+    <p>กำลังเชื่อมต่อ LINE</p>
   </div>
 
-  <!-- LOAD -->
+  <!-- STEP 2 -->
   <div id="step-load" class="step">
     <div class="spinner">⏳</div>
-    <p style="text-align:center">กำลังโหลดแต้ม</p>
+    <p>กำลังตรวจสอบแต้ม</p>
   </div>
 
-  <!-- REDEEM -->
+  <!-- STEP 3 -->
   <div id="step-redeem" class="step">
     <h3>แต้มคงเหลือ</h3>
     <div class="point" id="balancePoint">0</div>
@@ -129,106 +144,113 @@ body {
 </div>
 
 <script>
-/* ========= CONFIG ========= */
-const LIFF_ID = "2008944819-N4ozrStq";      // LIFF redeem
-const API = "https://90-production.up.railway.app";    // 🔴 แก้เป็น backend จริง
-
-/* ========= FORCE FRESH ========= */
-/* ป้องกัน LIFF reuse WebView */
-if (!location.search.includes("fresh=1")) {
-  location.replace(location.pathname + "?fresh=1");
-  throw new Error("reload");
-}
+const API = ""; // ถ้า backend คนละ domain ใส่ https://xxx.up.railway.app
 
 let balance = 0;
 let input = "";
 let userId = "";
 
-/* ========= UI ========= */
 function show(id) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
 }
 
-/* ========= MAIN ========= */
 async function main() {
-  try {
-    show("step-connect");
+  show("step-connect");
 
-    await liff.init({ liffId: LIFF_ID });
+  await liff.init({ liffId: "2008944819-N4ozrStq" });
 
-    if (!liff.isInClient()) {
-      alert("กรุณาเปิดผ่าน LINE เท่านั้น");
-      return liff.closeWindow();
-    }
-
-    if (!liff.isLoggedIn()) {
-      liff.login({ redirectUri: location.href });
-      return;
-    }
-
-    show("step-load");
-
-    const profile = await liff.getProfile();
-    userId = profile.userId;
-
-    const res = await fetch(`${API}/balance?userId=${userId}`);
-    if (!res.ok) throw new Error("balance fail");
-
-    const data = await res.json();
-    balance = data.balance || 0;
-
-    document.getElementById("balancePoint").innerText = balance;
-    show("step-redeem");
-
-  } catch (err) {
-    console.error(err);
-    alert("เกิดข้อผิดพลาด กรุณาเปิดใหม่จาก Rich Menu");
-    liff.closeWindow();
+  if (!liff.isLoggedIn()) {
+    liff.login({ redirectUri: location.href });
+    return;
   }
+
+  show("step-load");
+
+  const profile = await liff.getProfile();
+  const userId = profile.userId;   // ✅ ตรงนี้แหละ
+
+  // ✅ ตรงนี้คือ GET /balance ที่เจงถาม
+  const res = await fetch(`/balance?userId=${userId}`);
+  if (!res.ok) {
+    alert("โหลดแต้มไม่สำเร็จ");
+    return;
+  }
+
+  const data = await res.json();
+
+  balance = data.balance; // แต้มจริงจาก backend
+  document.getElementById("balancePoint").innerText = balance;
+
+  show("step-redeem");
 }
 
-/* ========= INPUT ========= */
-function add(n){ input += n; update(); }
-function back(){ input = input.slice(0,-1); update(); }
-function clearAll(){ input=""; update(); }
+function add(n) {
+  input += n;
+  update();
+}
 
-function update(){
-  const p = Number(input||0);
+function back() {
+  input = input.slice(0, -1);
+  update();
+}
+
+function clearAll() {
+  input = "";
+  update();
+}
+
+function update() {
+  const p = Number(input || 0);
   document.getElementById("usePoint").innerText = p;
   document.getElementById("useMoney").innerText = p;
-  document.getElementById("confirmBtn").disabled = p<=0 || p>balance;
+
+  document.getElementById("confirmBtn").disabled =
+    p <= 0 || p > balance;
 }
 
-/* ========= REDEEM ========= */
-async function confirmRedeem(){
+async function confirmRedeem() {
+  if (!liff.isInClient()) {
+    alert("กรุณาเปิดผ่าน LINE");
+    return;
+  }
+
   try {
     const result = await liff.scanCodeV2();
-    const qr = JSON.parse(result.value);
-
-    const res = await fetch(`${API}/redeem`,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({
-        line_user_id:userId,
-        use_point:Number(input),
-        nonce:qr.nonce
-      })
-    });
-
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.error);
-
-    alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
-    liff.closeWindow();
-
+    const qrData = JSON.parse(result.value);
+    await redeemPoint(qrData);
   } catch {
-    // ❗ cancel scan ต้องปิดทันที
-    liff.closeWindow();
+    alert("ยกเลิกการสแกน");
   }
+}
+
+async function redeemPoint(qrData) {
+  const res = await fetch(`${API}/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      line_user_id: userId,
+      use_point: Number(input),
+      machine_id: qrData.machine_id,
+      amount: qrData.amount,
+      nonce: qrData.nonce,
+      expire: qrData.expire
+    })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.error || "ใช้แต้มไม่สำเร็จ");
+    return;
+  }
+
+  alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
+  liff.closeWindow();
 }
 
 main();
 </script>
+
 </body>
 </html>
