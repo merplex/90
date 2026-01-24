@@ -2,38 +2,44 @@
 <html lang="th">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport"
+  content="width=device-width,
+           initial-scale=1,
+           maximum-scale=1,
+           user-scalable=no,
+           viewport-fit=cover">
+
 <title>ใช้แต้ม</title>
+
+<!-- LIFF SDK -->
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
 <style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #f7f7f7;
+    background: #f4f6f8;
     margin: 0;
-    padding: 20px;
-    text-align: center;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
   }
 
   .card {
     background: #fff;
-    border-radius: 16px;
-    padding: 20px;
-    max-width: 360px;
-    margin: auto;
-    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    border-radius: 20px;
+    padding: 24px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.08);
   }
 
-  .step {
-    display: none;
-  }
-
-  .step.active {
-    display: block;
-  }
+  .step { display: none; }
+  .step.active { display: block; }
 
   .spinner {
     font-size: 48px;
     animation: spin 1.2s linear infinite;
+    margin: 40px 0;
   }
 
   @keyframes spin {
@@ -41,50 +47,55 @@
     100% { transform: rotate(360deg); }
   }
 
+  h3 {
+    margin-top: 0;
+    font-size: 18px;
+    color: #333;
+  }
+
   .point {
-    font-size: 32px;
+    font-size: 40px;
     font-weight: bold;
-    color: #2e7d32;
+    color: #06c755;
+    margin: 8px 0;
   }
 
   .money {
-    font-size: 20px;
-    margin-top: 8px;
+    font-size: 16px;
     color: #555;
+    margin-bottom: 16px;
   }
 
   .numpad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    gap: 14px;
     margin-top: 20px;
   }
 
   .numpad button {
-    padding: 18px;
-    font-size: 20px;
-    border-radius: 12px;
+    height: 72px;
+    font-size: 26px;
+    border-radius: 18px;
     border: none;
-    background: #eee;
-  }
-
-  .numpad button:active {
-    background: #ccc;
+    background: #f1f3f5;
+    font-weight: 600;
   }
 
   .confirm {
-    margin-top: 20px;
-    padding: 16px;
+    margin-top: 24px;
+    height: 60px;
     width: 100%;
-    font-size: 18px;
-    border-radius: 12px;
+    font-size: 20px;
+    border-radius: 16px;
     border: none;
     background: #06c755;
     color: white;
+    font-weight: bold;
   }
 
   .confirm:disabled {
-    background: #aaa;
+    background: #bdbdbd;
   }
 </style>
 </head>
@@ -93,19 +104,19 @@
 
 <div class="card">
 
-  <!-- STEP 1 : CONNECT -->
+  <!-- STEP 1 -->
   <div id="step-connect" class="step active">
     <div class="spinner">🔄</div>
     <p>กำลังเชื่อมต่อ LINE</p>
   </div>
 
-  <!-- STEP 2 : LOAD POINT -->
+  <!-- STEP 2 -->
   <div id="step-load" class="step">
     <div class="spinner">⏳</div>
     <p>กำลังตรวจสอบแต้ม</p>
   </div>
 
-  <!-- STEP 3 : REDEEM -->
+  <!-- STEP 3 -->
   <div id="step-redeem" class="step">
     <h3>แต้มคงเหลือ</h3>
     <div class="point" id="balancePoint">0</div>
@@ -130,16 +141,19 @@
       <button onclick="back()">←</button>
     </div>
 
-    <button class="confirm" id="confirmBtn" onclick="confirmRedeem()">
-    ยืนยันใช้แต้ม
+    <button class="confirm" id="confirmBtn" onclick="confirmRedeem()" disabled>
+      ยืนยันใช้แต้ม
     </button>
   </div>
 
 </div>
 
 <script>
-let balance = 0;     // แต้มคงเหลือ
-let input = "";     // แต้มที่กรอก
+const API = ""; // ถ้า backend คนละ domain ใส่ https://xxx.up.railway.app
+
+let balance = 0;
+let input = "";
+let userId = "";
 
 function show(id) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
@@ -159,12 +173,20 @@ async function main() {
   show("step-load");
 
   const profile = await liff.getProfile();
-  const userId = profile.userId;
+  const userId = profile.userId;   // ✅ ตรงนี้แหละ
 
-  // 🔴 mock แต้มก่อน (เดี๋ยวเปลี่ยนเป็น fetch จริง)
-  balance = 120;
+  // ✅ ตรงนี้คือ GET /balance ที่เจงถาม
+  const res = await fetch(`/balance?userId=${userId}`);
+  if (!res.ok) {
+    alert("โหลดแต้มไม่สำเร็จ");
+    return;
+  }
 
+  const data = await res.json();
+
+  balance = data.balance; // แต้มจริงจาก backend
   document.getElementById("balancePoint").innerText = balance;
+
   show("step-redeem");
 }
 
@@ -199,31 +221,20 @@ async function confirmRedeem() {
   }
 
   try {
-    // 👉 เปิดกล้องสแกน QR
     const result = await liff.scanCodeV2();
-
-    // ข้อมูลที่ได้จาก QR (เป็น string)
-    const qrText = result.value;
-    console.log("QR:", qrText);
-
-    const qrData = JSON.parse(qrText);
-
-    // ส่งไป backend
+    const qrData = JSON.parse(result.value);
     await redeemPoint(qrData);
-
-  } catch (err) {
+  } catch {
     alert("ยกเลิกการสแกน");
   }
 }
 
 async function redeemPoint(qrData) {
-  const profile = await liff.getProfile();
-
-  const res = await fetch("/redeem", {
+  const res = await fetch(`${API}/redeem`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      line_user_id: profile.userId,
+      line_user_id: userId,
       use_point: Number(input),
       machine_id: qrData.machine_id,
       amount: qrData.amount,
@@ -239,16 +250,9 @@ async function redeemPoint(qrData) {
     return;
   }
 
-  alert(
-    `🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`
-  );
-
+  alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
   liff.closeWindow();
 }
-
-  // เฟสหน้า: fetch /redeem
-  // แล้วค่อย closeWindow
-  // liff.closeWindow();
 
 main();
 </script>

@@ -200,6 +200,38 @@ app.post("/create-qr", async (req, res) => {
 });
 
 /* =======================
+   6.5 GET BALANCE  👈 เพิ่มตรงนี้
+======================= */
+app.get("/balance", async (req, res) => {
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({ error: "missing userId" });
+  }
+
+  // หา member
+  const { data: member, error: memberErr } = await supabase
+    .from("ninetyMember")
+    .select("id")
+    .eq("line_user_id", userId)
+    .single();
+
+  if (memberErr || !member) {
+    return res.json({ balance: 0 });
+  }
+
+  // อ่าน wallet
+  const { data: wallet } = await supabase
+    .from("memberWallet")
+    .select("point_balance")
+    .eq("member_id", member.id)
+    .single();
+
+  return res.json({
+    balance: wallet?.point_balance ?? 0,
+  });
+});
+/* =======================
    แทรก REDEEM LOGIC ที่นี่
 ======================= */
 app.post("/redeem", async (req, res) => {
