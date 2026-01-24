@@ -145,52 +145,41 @@ h3 {
 </div>
 
 <script>
-/* =====================
-   CONFIG
-===================== */
-const LIFF_ID = "2008944819-N4ozrStq"; // 🔴 ใส่ LIFF ID ของ redeem
-const API = ""; // ถ้า backend อยู่ domain เดียว ปล่อยว่าง
+const LIFF_ID = "2008944819-N4ozrStq";
+const API = "";
 
 let balance = 0;
 let input = "";
 let userId = "";
 
-/* =====================
-   UI
-===================== */
 function show(id) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
 }
 
-/* =====================
-   MAIN
-===================== */
 async function main() {
   try {
     show("step-connect");
 
-    const killer = setTimeout(() => {
-      alert("เชื่อมต่อ LINE ไม่สำเร็จ กรุณาเปิดใหม่");
-      liff.closeWindow();
-    }, 10000);
-
     await liff.init({ liffId: LIFF_ID });
-    await liff.ready;
+
+    if (!liff.isInClient()) {
+      alert("กรุณาเปิดผ่าน LINE เท่านั้น");
+      return;
+    }
 
     if (!liff.isLoggedIn()) {
       liff.login({ redirectUri: location.href });
       return;
     }
 
-    clearTimeout(killer);
     show("step-load");
 
     const profile = await liff.getProfile();
     userId = profile.userId;
 
-    const res = await fetch(`${API}/balance?userId=${userId}`);
-    if (!res.ok) throw new Error("load balance fail");
+    const res = await fetch(`/balance?userId=${userId}`);
+    if (!res.ok) throw new Error("balance error");
 
     const data = await res.json();
     balance = data.balance || 0;
@@ -199,29 +188,16 @@ async function main() {
     show("step-redeem");
 
   } catch (err) {
-    console.error(err);
-    alert("เกิดข้อผิดพลาด กรุณาเปิดใหม่");
+    console.error("LIFF ERROR:", err);
+    alert("เกิดข้อผิดพลาด กรุณาปิดแล้วเปิดใหม่จาก Rich Menu");
     liff.closeWindow();
   }
 }
 
-/* =====================
-   INPUT
-===================== */
-function add(n) {
-  input += n;
-  update();
-}
-
-function back() {
-  input = input.slice(0, -1);
-  update();
-}
-
-function clearAll() {
-  input = "";
-  update();
-}
+/* ===== keypad ===== */
+function add(n) { input += n; update(); }
+function back() { input = input.slice(0, -1); update(); }
+function clearAll() { input = ""; update(); }
 
 function update() {
   const p = Number(input || 0);
@@ -230,49 +206,35 @@ function update() {
   document.getElementById("confirmBtn").disabled = p <= 0 || p > balance;
 }
 
-/* =====================
-   REDEEM
-===================== */
+/* ===== redeem ===== */
 async function confirmRedeem() {
-  if (!liff.isInClient()) {
-    alert("กรุณาเปิดผ่าน LINE");
-    return;
-  }
-
   try {
     const result = await liff.scanCodeV2();
     const qrData = JSON.parse(result.value);
-    await redeemPoint(qrData);
-  } catch {
-    alert("ยกเลิกการสแกน");
+
+    const res = await fetch(`/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        line_user_id: userId,
+        use_point: Number(input),
+        nonce: qrData.nonce
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
+    liff.closeWindow();
+
+  } catch (err) {
+    alert("ยกเลิกหรือเกิดข้อผิดพลาด");
     liff.closeWindow();
   }
 }
 
-async function redeemPoint(qrData) {
-  const res = await fetch(`${API}/redeem`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      line_user_id: userId,
-      use_point: Number(input),
-      nonce: qrData.nonce
-    })
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    alert(data.error || "ใช้แต้มไม่สำเร็จ");
-    return;
-  }
-
-  alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
-  liff.closeWindow();
-}
-
 main();
 </script>
-
 </body>
 </html>
