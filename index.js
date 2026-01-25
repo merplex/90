@@ -173,6 +173,13 @@ app.post("/create-qr", async (req, res) => {
 });
 
 /* =======================
+   HEALTH CHECK (Railway)
+======================= */
+app.get("/", (req, res) => {
+  res.status(200).send("OK");
+});
+
+/* =======================
    START SERVER (Railway)
 ======================= */
 const PORT = process.env.PORT || 3000;
