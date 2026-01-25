@@ -10,16 +10,13 @@ const crypto = require("crypto");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 
-const cors = require("cors");
-
-app.use(cors());
-app.use(express.json());
-
 /* =======================
    INIT
 ======================= */
 const app = express();
-app.use(cors()); // 👈 สำคัญมาก แก้ Failed to fetch
+
+// ✅ middleware ต้องอยู่บนสุด
+app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -31,7 +28,7 @@ const supabase = createClient(
 /* =======================
    LINE PUSH
 ======================= */
-async function pushPointMessage(userId, pointGet, totalPoint) {
+async function pushPointMessage(userId, pointGet, newPoint) {
   await axios.post(
     "https://api.line.me/v2/bot/message/push",
     {
@@ -39,120 +36,34 @@ async function pushPointMessage(userId, pointGet, totalPoint) {
       messages: [
         {
           type: "text",
-          text:
-`🎉 สะสมแต้มสำเร็จ
+          text: `🎉 สะสมแต้มสำเร็จ
 ได้รับ ${pointGet} แต้ม
-แต้มสะสมทั้งหมด: ${totalPoint} แต้ม`
-        }
-      ]
+แต้มสะสมทั้งหมด: ${newPoint} แต้ม`,
+        },
+      ],
     },
     {
       headers: {
         Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        "Content-Type": "application/json"
-      }
+        "Content-Type": "application/json",
+      },
     }
   );
 }
 
 /* =======================
-   WEBHOOK (กัน LINE error)
+   WEBHOOK (แค่ให้ LINE ผ่าน)
 ======================= */
 app.post("/webhook", (req, res) => {
   res.sendStatus(200);
 });
 
 /* =======================
-   LIFF CONSUME (รับแต้ม)
-======================= */
-
-app.get("/liff/consume", async (req, res) => {
-  const { token, userId } = req.query;
-  console.log("🔥 CONSUME:", token, userId);
-
-  if (!token || !userId) {
-    return res.send("invalid request");
-  }
-
-  /* 1. LOCK QR */
-  const { data: qr, error: qrErr } = await supabase
-    .from("qrPointToken")
-    .update({
-      is_used: true,
-      used_at: new Date(),
-      used_by: userId
-    })
-    .eq("qr_token", token)
-    .eq("is_used", false)
-    .select("*")
-    .maybeSingle();
-
-  if (qrErr || !qr) {
-    return res.send("QR ถูกใช้แล้ว หรือไม่ถูกต้อง");
-  }
-
-  if (new Date(qr.expired_at) < new Date()) {
-    return res.send("QR หมดอายุ");
-  }
-
-  /* 2. ensure member */
-  const { data: member } = await supabase
-    .from("ninetyMember")
-    .upsert(
-      { line_user_id: userId },
-      { onConflict: "line_user_id" }
-    )
-    .select("id")
-    .single();
-
-  /* 3. ensure wallet */
-  const { data: wallet } = await supabase
-    .from("memberWallet")
-    .select("point_balance")
-    .eq("member_id", member.id)
-    .maybeSingle();
-
-  if (!wallet) {
-    await supabase.from("memberWallet").insert({
-      member_id: member.id,
-      point_balance: 0
-    });
-  }
-
-  /* 4. เพิ่มแต้ม */
-  const { error: addErr } = await supabase.rpc("add_point", {
-    p_member_id: member.id,
-    p_point: qr.point_get
-  });
-
-  if (addErr) {
-    console.error(addErr);
-    return res.send("เพิ่มแต้มไม่สำเร็จ");
-  }
-
-  /* 5. อ่านแต้มล่าสุด */
-  const { data: walletAfter } = await supabase
-    .from("memberWallet")
-    .select("point_balance")
-    .eq("member_id", member.id)
-    .single();
-
-  /* 6. PUSH LINE */
-  await pushPointMessage(
-    userId,
-    qr.point_get,
-    walletAfter.point_balance
-  );
-
-  /* 7. ตอบหน้า LIFF (ไม่สำคัญ) */
-  res.send("รับแต้มสำเร็จ กรุณากลับไปที่ LINE");
-});
-
-/* =======================
-   CREATE QR (HMI)
+   CREATE QR (เครื่องล้างรถ)
 ======================= */
 app.post("/create-qr", async (req, res) => {
   const { amount, machine_id } = req.body;
+
   if (!amount || !machine_id) {
     return res.status(400).json({ error: "invalid input" });
   }
@@ -161,23 +72,99 @@ app.post("/create-qr", async (req, res) => {
   const token = crypto.randomUUID();
   const qrUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
 
-  await supabase.from("qrPointToken").insert({
+  const { error } = await supabase.from("qrPointToken").insert({
     qr_token: token,
     scan_amount: amount,
     point_get: point,
     is_used: false,
     machine_id,
-    qr_url: qrUrl,
-    expired_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    expired_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
 
   res.json({ qr_url: qrUrl });
 });
 
 /* =======================
-   START SERVER
+   LIFF CONSUME (รับแต้ม)
+======================= */
+app.get("/liff/consume", async (req, res) => {
+  try {
+    const { token, userId } = req.query;
+    console.log("🔥 CONSUME", token, userId);
+
+    if (!token || !userId) {
+      return res.status(400).send("missing token or userId");
+    }
+
+    // 1. lock QR
+    const { data: qr } = await supabase
+      .from("qrPointToken")
+      .update({
+        is_used: true,
+        used_at: new Date(),
+        used_by: userId,
+      })
+      .eq("qr_token", token)
+      .eq("is_used", false)
+      .select("*")
+      .maybeSingle();
+
+    if (!qr) {
+      return res.send("❌ QR นี้ถูกใช้ไปแล้ว");
+    }
+
+    // 2. ensure member
+    const { data: member } = await supabase
+      .from("ninetyMember")
+      .upsert({ line_user_id: userId }, { onConflict: "line_user_id" })
+      .select("*")
+      .single();
+
+    // 3. ensure wallet
+    const { data: wallet } = await supabase
+      .from("memberWallet")
+      .select("*")
+      .eq("member_id", member.id)
+      .maybeSingle();
+
+    if (!wallet) {
+      await supabase.from("memberWallet").insert({
+        member_id: member.id,
+        point_balance: 0,
+      });
+    }
+
+    // 4. add point
+    await supabase.rpc("add_point", {
+      p_member_id: member.id,
+      p_point: qr.point_get,
+    });
+
+    // 5. read balance
+    const { data: newWallet } = await supabase
+      .from("memberWallet")
+      .select("point_balance")
+      .eq("member_id", member.id)
+      .single();
+
+    // 6. push LINE
+    await pushPointMessage(userId, qr.point_get, newWallet.point_balance);
+
+    res.send("OK");
+  } catch (err) {
+    console.error("❌ CONSUME ERROR", err);
+    res.status(500).send("server error");
+  }
+});
+
+/* =======================
+   START
 ======================= */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Server running on", PORT);
 });
