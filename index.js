@@ -68,54 +68,76 @@ async function replyText(replyToken, text) {
 }
 
 /* =======================
-   4. WEBHOOK (DEBUG)
+   4. WEBHOOK (LINE)
 ======================= */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
+
+  console.log("📩 WEBHOOK HIT:", JSON.stringify(req.body));
+
   if (!events || events.length === 0) {
     return res.sendStatus(200);
   }
 
-  const event = events[0];
-
-  // รับเฉพาะข้อความ
-  if (event.type === "message" && event.message.type === "text") {
-    const text = event.message.text.trim();
-    const userId = event.source.userId;
-
-    // ===== CHECK POINT =====
-    if (text === "CHECK_POINT") {
-      // 1. หา member
-      const { data: member } = await supabase
-        .from("ninetyMember")
-        .select("id")
-        .eq("line_user_id", userId)
-        .single();
-
-      if (!member) {
-        await replyText(event.replyToken, "❌ ยังไม่พบข้อมูลสมาชิก");
-        return res.sendStatus(200);
-      }
-
-      // 2. อ่าน wallet
-      const { data: wallet } = await supabase
-        .from("memberWallet")
-        .select("point_balance")
-        .eq("member_id", member.id)
-        .single();
-
-      const point = wallet?.point_balance ?? 0;
-
-      // 3. ตอบกลับ LINE
-      await replyText(
-        event.replyToken,
-        `🎉 แต้มสะสมของคุณ\nแต้มสะสมทั้งหมด: ${point} แต้ม`
-      );
+  for (const event of events) {
+    try {
+      await handleLineEvent(event);
+    } catch (err) {
+      console.error("❌ handleLineEvent error:", err);
     }
   }
 
   res.sendStatus(200);
 });
+
+/* =======================
+   HANDLE EVENT
+======================= */
+async function handleLineEvent(event) {
+  if (event.type !== "message") return;
+  if (event.message.type !== "text") return;
+
+  const text = event.message.text.trim();
+  const userId = event.source.userId;
+
+  console.log("💬 MESSAGE:", text, "FROM:", userId);
+
+  /* ===== CHECK POINT ===== */
+  if (text === "CHECK_POINT") {
+    // 1. หา member
+    const { data: member, error: memberErr } = await supabase
+      .from("ninetyMember")
+      .select("id")
+      .eq("line_user_id", userId)
+      .single();
+
+    if (memberErr || !member) {
+      await replyText(event.replyToken, "❌ ยังไม่พบข้อมูลสมาชิก");
+      return;
+    }
+
+    // 2. อ่าน wallet
+    const { data: wallet, error: walletErr } = await supabase
+      .from("memberWallet")
+      .select("point_balance")
+      .eq("member_id", member.id)
+      .single();
+
+    if (walletErr) {
+      console.error(walletErr);
+      await replyText(event.replyToken, "❌ อ่านข้อมูลแต้มไม่สำเร็จ");
+      return;
+    }
+
+    const point = wallet?.point_balance ?? 0;
+
+    // 3. ตอบกลับ LINE
+    await replyText(
+      event.replyToken,
+      `🎉 แต้มสะสมของคุณ\nแต้มสะสมทั้งหมด: ${point} แต้ม`
+    );
+  }
+}
 
 /* =======================
    5. LIFF CONSUME
