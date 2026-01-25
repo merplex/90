@@ -1,3 +1,8 @@
+// update for railway v1
+require("dotenv").config();
+// ... โค้ดเดิม ...
+
+
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
