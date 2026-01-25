@@ -46,13 +46,74 @@ async function pushPointMessage(userId, pointGet, newPoint) {
     }
   );
 }
+async function replyText(replyToken, text) {
+  await axios.post(
+    "https://api.line.me/v2/bot/message/reply",
+    {
+      replyToken,
+      messages: [
+        {
+          type: "text",
+          text,
+        },
+      ],
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      },
+    }
+  );
+}
 
 /* =======================
    4. WEBHOOK (DEBUG)
 ======================= */
-app.post("/webhook", (req, res) => {
-  console.log("=== WEBHOOK ===");
-  console.log(JSON.stringify(req.body, null, 2));
+app.post("/webhook", async (req, res) => {
+  const events = req.body.events;
+  if (!events || events.length === 0) {
+    return res.sendStatus(200);
+  }
+
+  const event = events[0];
+
+  // รับเฉพาะข้อความ
+  if (event.type === "message" && event.message.type === "text") {
+    const text = event.message.text.trim();
+    const userId = event.source.userId;
+
+    // ===== CHECK POINT =====
+    if (text === "CHECK_POINT") {
+      // 1. หา member
+      const { data: member } = await supabase
+        .from("ninetyMember")
+        .select("id")
+        .eq("line_user_id", userId)
+        .single();
+
+      if (!member) {
+        await replyText(event.replyToken, "❌ ยังไม่พบข้อมูลสมาชิก");
+        return res.sendStatus(200);
+      }
+
+      // 2. อ่าน wallet
+      const { data: wallet } = await supabase
+        .from("memberWallet")
+        .select("point_balance")
+        .eq("member_id", member.id)
+        .single();
+
+      const point = wallet?.point_balance ?? 0;
+
+      // 3. ตอบกลับ LINE
+      await replyText(
+        event.replyToken,
+        `🎉 แต้มสะสมของคุณ\nแต้มสะสมทั้งหมด: ${point} แต้ม`
+      );
+    }
+  }
+
   res.sendStatus(200);
 });
 
