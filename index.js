@@ -5,183 +5,118 @@ const axios = require("axios");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 
-/* =======================
-   GLOBAL ERROR GUARD (สำคัญมาก)
-======================= */
-process.on("unhandledRejection", (err) => {
-  console.error("❌ UNHANDLED REJECTION", err);
-});
-process.on("uncaughtException", (err) => {
-  console.error("❌ UNCAUGHT EXCEPTION", err);
-});
-
-/* =======================
-   INIT APP
-======================= */
 const app = express();
-app.use(cors());
+app.use(cors()); // อนุญาตให้ LIFF เรียก API ได้
 app.use(express.json());
 
-/* =======================
-   SUPABASE
-======================= */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* =======================
-   HEALTH CHECK (Railway ต้องมี)
-======================= */
-app.get("/", (req, res) => {
-  res.status(200).send("OK");
-});
+// Health Check สำหรับ Railway
+app.get("/", (req, res) => res.status(200).send("Server is running"));
 
 /* =======================
-   LINE WEBHOOK (ยังต้องมี)
-======================= */
-app.post("/webhook", (req, res) => {
-  res.sendStatus(200);
-});
-
-/* =======================
-   LIFF CONSUME (รับแต้มจาก QR)
+   LIFF CONSUME (รับแต้ม)
 ======================= */
 app.get("/liff/consume", async (req, res) => {
   try {
     const { token, userId } = req.query;
-    console.log("🔥 LIFF CONSUME", token, userId);
+    console.log(`🟡 Processing: Token=${token}, User=${userId}`);
 
-    if (!token || !userId) {
-      return res.status(400).send("invalid request");
-    }
+    if (!token || !userId) return res.status(400).send("ข้อมูลไม่ครบถ้วน");
 
-    /* 1. LOCK QR */
+    // 1. ตรวจสอบและ Lock QR ทันที (ป้องกันสแกนซ้ำ)
     const { data: qr, error: qrErr } = await supabase
       .from("qrPointToken")
-      .update({
-        is_used: true,
-        used_at: new Date(),
-        used_by: userId,
-      })
+      .update({ is_used: true, used_at: new Date(), used_by: userId })
       .eq("qr_token", token)
       .eq("is_used", false)
       .select("*")
       .maybeSingle();
 
     if (qrErr || !qr) {
-      return res.status(400).send("QR used or invalid");
+      console.error("❌ QR Error:", qrErr);
+      return res.status(400).send("QR นี้ถูกใช้งานแล้ว หรือรหัสไม่ถูกต้อง");
     }
 
-    /* 2. ENSURE MEMBER */
-    const { data: member, error: memberErr } = await supabase
+    // 2. ลงทะเบียน/ดึงข้อมูลสมาชิก
+    const { data: member, error: memErr } = await supabase
       .from("ninetyMember")
       .upsert({ line_user_id: userId }, { onConflict: "line_user_id" })
-      .select("*")
+      .select("id")
       .single();
 
-    if (memberErr || !member) {
-      return res.status(500).send("member error");
-    }
+    if (memErr) throw memErr;
 
-    /* 3. ENSURE WALLET */
-    const { data: wallet } = await supabase
+    // 3. ตรวจสอบ/สร้าง Wallet (ใช้ upsert เพื่อป้องกัน Error ถ้ามีอยู่แล้ว)
+    const { error: walletErr } = await supabase
       .from("memberWallet")
-      .select("*")
-      .eq("member_id", member.id)
-      .maybeSingle();
+      .upsert({ member_id: member.id }, { onConflict: "member_id" });
 
-    if (!wallet) {
-      await supabase.from("memberWallet").insert({
-        member_id: member.id,
-        point_balance: 0,
-      });
-    }
+    if (walletErr) console.warn("Wallet Upsert Warning:", walletErr.message);
 
-    /* 4. ADD POINT */
-    await supabase.rpc("add_point", {
+    // 4. บันทึกแต้ม (เรียก RPC add_point ที่คุณต้องสร้างใน SQL Editor)
+    const { error: rpcErr } = await supabase.rpc("add_point", {
       p_member_id: member.id,
       p_point: qr.point_get,
     });
+    if (rpcErr) throw rpcErr;
 
-    /* 5. READ NEW BALANCE */
-    const { data: newWallet } = await supabase
+    // 5. ดึงยอดแต้มล่าสุด
+    const { data: balance } = await supabase
       .from("memberWallet")
       .select("point_balance")
       .eq("member_id", member.id)
       .single();
 
-    /* 6. PUSH LINE (ไม่พังถ้า token ผิด) */
+    // 6. แจ้งเตือนผ่าน LINE OA (ถ้ามี Token)
     if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-      try {
-        await axios.post(
-          "https://api.line.me/v2/bot/message/push",
-          {
-            to: userId,
-            messages: [
-              {
-                type: "text",
-                text: `🎉 รับแต้มสำเร็จ\nได้รับ ${qr.point_get} แต้ม\nแต้มสะสมทั้งหมด ${newWallet.point_balance} แต้ม`,
-              },
-            ],
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-      } catch (lineErr) {
-        console.error("⚠️ LINE PUSH FAIL", lineErr.response?.data || lineErr.message);
-      }
-    } else {
-      console.warn("⚠️ LINE_CHANNEL_ACCESS_TOKEN missing");
+      await axios.post("https://api.line.me/v2/bot/message/push", {
+        to: userId,
+        messages: [{
+          type: "text",
+          text: `🎉 รับแต้มสำเร็จ!\nได้รับ ${qr.point_get} แต้ม\nยอดสะสมทั้งหมด: ${balance?.point_balance || 0} แต้ม`
+        }]
+      }, {
+        headers: { Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+      }).catch(e => console.error("LINE Push Failed"));
     }
 
-    res.send("OK");
+    res.status(200).send("บันทึกแต้มสำเร็จแล้ว!");
+
   } catch (err) {
-    console.error("❌ LIFF CONSUME ERROR", err);
-    res.status(500).send("server error");
+    console.error("❌ Server Error:", err.message);
+    res.status(500).send("เกิดข้อผิดพลาดภายในระบบ: " + err.message);
   }
 });
 
 /* =======================
-   CREATE QR (HMI)
+   CREATE QR (จากเครื่อง HMI)
 ======================= */
 app.post("/create-qr", async (req, res) => {
   try {
     const { amount, machine_id } = req.body;
-
-    if (!amount || !machine_id) {
-      return res.status(400).json({ error: "invalid input" });
-    }
-
     const token = crypto.randomUUID();
     const point = Math.floor(amount / 10);
+    const qrUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
 
-    await supabase.from("qrPointToken").insert({
+    const { error } = await supabase.from("qrPointToken").insert({
       qr_token: token,
       scan_amount: amount,
       point_get: point,
       is_used: false,
       machine_id,
-      expired_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      qr_url: qrUrl
     });
 
-    res.json({
-      qr_url: `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`,
-    });
+    if (error) throw error;
+    res.json({ qr_url: qrUrl });
   } catch (err) {
-    console.error("❌ CREATE QR ERROR", err);
-    res.status(500).json({ error: "server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-/* =======================
-   START SERVER (ต้องมี)
-======================= */
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Server running on", PORT);
-});
+app.listen(PORT, "0.0.0.0", () => console.log("🚀 Server standby on port", PORT));

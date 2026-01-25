@@ -2,59 +2,55 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>รับแต้ม</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>สะสมแต้ม</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 40px 20px; }
+    .btn { background: #00b900; color: white; border: none; padding: 10px 20px; border-radius: 5px; display: none; margin: 20px auto; }
+  </style>
 </head>
 <body>
-  <h2>กำลังตรวจสอบ QR...</h2>
+  <div id="status">
+    <h3>กำลังเชื่อมต่อระบบ...</h3>
+    <p>กรุณารอสักครู่</p>
+  </div>
+  <button id="closeBtn" class="btn" onclick="liff.closeWindow()">ปิดหน้าต่าง</button>
 
   <script>
     const BACKEND = "https://90-production.up.railway.app";
+    const statusDiv = document.getElementById("status");
 
     async function main() {
       try {
-        // 1. init LIFF
         await liff.init({ liffId: "2008944819-hKnqP5yy" });
+        if (!liff.isLoggedIn()) { liff.login(); return; }
 
-        // 2. login ถ้ายังไม่ login
-        if (!liff.isLoggedIn()) {
-          liff.login({ redirectUri: window.location.href });
-          return;
-        }
-
-        // 3. อ่าน token จาก URL
-        const params = new URLSearchParams(window.location.search);
-        const token = params.get("token");
-
+        const token = new URLSearchParams(window.location.search).get("token");
         if (!token) {
-          document.body.innerHTML = "❌ ไม่พบ token";
+          statusDiv.innerHTML = "❌ ไม่พบรหัสคิวอาร์";
           return;
         }
 
-        // 4. get userId
         const profile = await liff.getProfile();
-        const userId = profile.userId;
+        statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้มให้คุณ...</p>`;
 
-        document.body.innerHTML = "<h3>กำลังรับแต้ม...</h3>";
+        // เรียก API
+        const response = await fetch(`${BACKEND}/liff/consume?token=${token}&userId=${profile.userId}`);
+        const resultText = await response.text();
 
-        // 5. เรียก backend (จุดนี้เท่านั้น)
-        const res = await fetch(
-          `${BACKEND}/liff/consume?token=${token}&userId=${userId}`
-        );
-
-        const html = await res.text();
-        document.body.innerHTML = html;
-
-        setTimeout(() => {
-          liff.closeWindow();
-        }, 1500);
-
+        if (response.ok) {
+          statusDiv.innerHTML = `<h3>✅ สำเร็จ</h3><p>${resultText}</p>`;
+          setTimeout(() => liff.closeWindow(), 3000);
+        } else {
+          statusDiv.innerHTML = `<h3>❌ ไม่สำเร็จ</h3><p>${resultText}</p>`;
+          document.getElementById("closeBtn").style.display = "block";
+        }
       } catch (err) {
-        console.error(err);
-        document.body.innerHTML = "❌ ERROR<br/>" + err.message;
+        statusDiv.innerHTML = `<h3>❌ เชื่อมต่อล้มเหลว</h3><p>โปรดตรวจสอบอินเทอร์เน็ตหรือลองใหม่อีกครั้ง</p>`;
+        document.getElementById("closeBtn").style.display = "block";
       }
     }
-
     main();
   </script>
 </body>
