@@ -146,7 +146,7 @@ h3 {
 
 <script>
 const LIFF_ID = "2008944819-N4ozrStq";
-const API = "";
+const API = "https://90-production.up.railway.app";
 
 let balance = 0;
 let input = "";
@@ -162,11 +162,6 @@ async function main() {
     show("step-connect");
 
     await liff.init({ liffId: LIFF_ID });
-
-    if (!liff.isInClient()) {
-      alert("กรุณาเปิดผ่าน LINE เท่านั้น");
-      return;
-    }
 
     if (!liff.isLoggedIn()) {
       liff.login({ redirectUri: location.href });
