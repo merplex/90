@@ -25,14 +25,14 @@
   },
   "homepage": "https://github.com/merplex/90#readme",
   "dependencies": {
-    "@supabase/supabase-js": "^2.91.0",
-    "axios": "^1.13.2",
-    "cors": "^2.8.6",
-    "dotenv": "^17.2.3",
+    "@supabase/supabase-js": "^2.39.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "qs": "^6.14.1"
+    "qs": "^6.11.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   }
 }
