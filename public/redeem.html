@@ -156,7 +156,14 @@ function show(id) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
 }
-
+function fetchWithTimeout(url, options = {}, timeout = 8000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), timeout)
+    )
+  ]);
+}
 async function main() {
   try {
     show("step-connect");
@@ -164,7 +171,7 @@ async function main() {
     await liff.init({ liffId: LIFF_ID });
 
     if (!liff.isLoggedIn()) {
-      liff.login({ redirectUri: location.href });
+      liff.login();
       return;
     }
 
@@ -173,8 +180,9 @@ async function main() {
     const profile = await liff.getProfile();
     userId = profile.userId;
 
-    const res = await fetch(`/balance?userId=${userId}`);
-    if (!res.ok) throw new Error("balance error");
+    const res = await fetchWithTimeout(
+      `${API}/balance?userId=${userId}`
+    );
 
     const data = await res.json();
     balance = data.balance || 0;
