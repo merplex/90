@@ -23,6 +23,9 @@
         // 3. อ่าน token
         const params = new URLSearchParams(window.location.search);
         const token = params.get("token");
+
+        alert("TOKEN = " + token);
+        
         if (!token) {
           document.getElementById("status").innerText = "❌ ไม่พบ token";
           return;
@@ -31,6 +34,8 @@
         // 4. get user profile
         const profile = await liff.getProfile();
         const userId = profile.userId;
+
+        alert("USER ID = " + userId);
 
         document.getElementById("status").innerText = "⏳ กำลังรับแต้ม...";
 
