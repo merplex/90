@@ -6,6 +6,7 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
 <body>
+  <h1 style="color:red">LIFF VERSION DEBUG 001</h1>
   <h2 id="status">กำลังตรวจสอบ QR...</h2>
 
   <script>
@@ -25,7 +26,7 @@
         const token = params.get("token");
 
         alert("TOKEN = " + token);
-        
+
         if (!token) {
           document.getElementById("status").innerText = "❌ ไม่พบ token";
           return;
