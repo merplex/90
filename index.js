@@ -7,12 +7,14 @@ const express = require("express");
 const path = require("path");
 const axios = require("axios");
 const crypto = require("crypto");
+const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 
 /* =======================
    INIT
 ======================= */
 const app = express();
+app.use(cors()); // 👈 สำคัญมาก แก้ Failed to fetch
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -49,10 +51,9 @@ async function pushPointMessage(userId, pointGet, totalPoint) {
 }
 
 /* =======================
-   WEBHOOK (กัน error ไว้)
+   WEBHOOK (กัน LINE error)
 ======================= */
 app.post("/webhook", (req, res) => {
-  // ตอนนี้ยังไม่ต้องทำอะไร
   res.sendStatus(200);
 });
 
