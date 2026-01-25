@@ -202,7 +202,7 @@ app.post("/create-qr", async (req, res) => {
 /* =======================
    6.5 GET BALANCE ดึงแต้ม 👈 เพิ่มตรงนี้
 ======================= */
-app.get("/balance", async (req, res) => {
+app.get("/api/balance", async (req, res) => {
   const { userId } = req.query;
 
   if (!userId) {
@@ -235,7 +235,7 @@ app.get("/balance", async (req, res) => {
    แทรก REDEEM LOGIC ที่นี่
 ======================= */
 
-app.post("/redeem", async (req, res) => {
+app.post("/api/redeem", async (req, res) => {
   const { line_user_id, nonce } = req.body;
 
   if (!line_user_id || !nonce) {
