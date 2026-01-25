@@ -146,7 +146,6 @@ h3 {
 
 <script>
 const LIFF_ID = "2008944819-N4ozrStq";
-const API = "https://90-production.up.railway.app";
 
 let balance = 0;
 let input = "";
@@ -181,8 +180,8 @@ async function main() {
     userId = profile.userId;
 
     const res = await fetchWithTimeout(
-  `${API}/api/balance?userId=${userId}`
-);
+    `/api/balance?userId=${userId}`
+    );
 
     const data = await res.json();
     balance = data.balance || 0;
@@ -215,7 +214,7 @@ async function confirmRedeem() {
     const result = await liff.scanCodeV2();
     const qrData = JSON.parse(result.value);
 
-    const res = await fetch(`${API}/api/redeem`, {
+    const res = await fetch(`/api/redeem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
