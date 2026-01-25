@@ -3,95 +3,96 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  content="width=device-width,
+           initial-scale=1,
+           maximum-scale=1,
+           user-scalable=no,
+           viewport-fit=cover">
+
 <title>ใช้แต้ม</title>
 
 <!-- LIFF SDK -->
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #f4f6f8;
-    margin: 0;
-    padding: 16px;
-    display: flex;
-    justify-content: center;
-  }
+* {
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
 
-  .card {
-    background: #fff;
-    border-radius: 20px;
-    padding: 24px;
-    width: 100%;
-    max-width: 420px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.08);
-  }
+body {
+  margin: 0;
+  padding: 16px;
+  background: #f4f6f8;
+  display: flex;
+  justify-content: center;
+}
 
-  .step { display: none; }
-  .step.active { display: block; }
+.card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 24px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+}
 
-  .spinner {
-    font-size: 48px;
-    animation: spin 1.2s linear infinite;
-    margin: 40px 0;
-  }
+.step { display: none; }
+.step.active { display: block; }
 
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
+.spinner {
+  font-size: 42px;
+  margin: 40px 0;
+  text-align: center;
+}
 
-  h3 {
-    margin-top: 0;
-    font-size: 18px;
-    color: #333;
-  }
+h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
 
-  .point {
-    font-size: 40px;
-    font-weight: bold;
-    color: #06c755;
-    margin: 8px 0;
-  }
+.point {
+  font-size: 42px;
+  font-weight: bold;
+  color: #06c755;
+}
 
-  .money {
-    font-size: 16px;
-    color: #555;
-    margin-bottom: 16px;
-  }
+.money {
+  margin: 12px 0;
+  color: #555;
+}
 
-  .numpad {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    margin-top: 20px;
-  }
+.numpad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 20px;
+}
 
-  .numpad button {
-    height: 72px;
-    font-size: 26px;
-    border-radius: 18px;
-    border: none;
-    background: #f1f3f5;
-    font-weight: 600;
-  }
+.numpad button {
+  height: 72px;
+  font-size: 26px;
+  border-radius: 18px;
+  border: none;
+  background: #f1f3f5;
+  font-weight: 600;
+}
 
-  .confirm {
-    margin-top: 24px;
-    height: 60px;
-    width: 100%;
-    font-size: 20px;
-    border-radius: 16px;
-    border: none;
-    background: #06c755;
-    color: white;
-    font-weight: bold;
-  }
+.confirm {
+  margin-top: 24px;
+  height: 60px;
+  width: 100%;
+  font-size: 20px;
+  border-radius: 16px;
+  border: none;
+  background: #06c755;
+  color: white;
+  font-weight: bold;
+}
 
-  .confirm:disabled {
-    background: #bdbdbd;
-  }
+.confirm:disabled {
+  background: #bdbdbd;
+}
 </style>
 </head>
 
@@ -99,19 +100,19 @@
 
 <div class="card">
 
-  <!-- STEP 1 -->
+  <!-- STEP CONNECT -->
   <div id="step-connect" class="step active">
     <div class="spinner">🔄</div>
-    <p>กำลังเชื่อมต่อ LINE</p>
+    <p style="text-align:center">กำลังเชื่อมต่อ LINE</p>
   </div>
 
-  <!-- STEP 2 -->
+  <!-- STEP LOAD -->
   <div id="step-load" class="step">
     <div class="spinner">⏳</div>
-    <p>กำลังตรวจสอบแต้ม</p>
+    <p style="text-align:center">กำลังโหลดแต้ม</p>
   </div>
 
-  <!-- STEP 3 -->
+  <!-- STEP REDEEM -->
   <div id="step-redeem" class="step">
     <h3>แต้มคงเหลือ</h3>
     <div class="point" id="balancePoint">0</div>
@@ -144,7 +145,8 @@
 </div>
 
 <script>
-const API = ""; // ถ้า backend คนละ domain ใส่ https://xxx.up.railway.app
+const LIFF_ID = "2008944819-N4ozrStq";
+const API = "";
 
 let balance = 0;
 let input = "";
@@ -156,101 +158,83 @@ function show(id) {
 }
 
 async function main() {
-  show("step-connect");
+  try {
+    show("step-connect");
 
-  await liff.init({ liffId: "2008944819-N4ozrStq" });
+    await liff.init({ liffId: LIFF_ID });
 
-  if (!liff.isLoggedIn()) {
-    liff.login({ redirectUri: location.href });
-    return;
+    if (!liff.isInClient()) {
+      alert("กรุณาเปิดผ่าน LINE เท่านั้น");
+      return;
+    }
+
+    if (!liff.isLoggedIn()) {
+      liff.login({ redirectUri: location.href });
+      return;
+    }
+
+    show("step-load");
+
+    const profile = await liff.getProfile();
+    userId = profile.userId;
+
+    const res = await fetch(`/balance?userId=${userId}`);
+    if (!res.ok) throw new Error("balance error");
+
+    const data = await res.json();
+    balance = data.balance || 0;
+
+    document.getElementById("balancePoint").innerText = balance;
+    show("step-redeem");
+
+  } catch (err) {
+    console.error("LIFF ERROR:", err);
+    alert("เกิดข้อผิดพลาด กรุณาปิดแล้วเปิดใหม่จาก Rich Menu");
+    liff.closeWindow();
   }
-
-  show("step-load");
-
-  const profile = await liff.getProfile();
-  const userId = profile.userId;   // ✅ ตรงนี้แหละ
-
-  // ✅ ตรงนี้คือ GET /balance ที่เจงถาม
-  const res = await fetch(`/balance?userId=${userId}`);
-  if (!res.ok) {
-    alert("โหลดแต้มไม่สำเร็จ");
-    return;
-  }
-
-  const data = await res.json();
-
-  balance = data.balance; // แต้มจริงจาก backend
-  document.getElementById("balancePoint").innerText = balance;
-
-  show("step-redeem");
 }
 
-function add(n) {
-  input += n;
-  update();
-}
-
-function back() {
-  input = input.slice(0, -1);
-  update();
-}
-
-function clearAll() {
-  input = "";
-  update();
-}
+/* ===== keypad ===== */
+function add(n) { input += n; update(); }
+function back() { input = input.slice(0, -1); update(); }
+function clearAll() { input = ""; update(); }
 
 function update() {
   const p = Number(input || 0);
   document.getElementById("usePoint").innerText = p;
   document.getElementById("useMoney").innerText = p;
-
-  document.getElementById("confirmBtn").disabled =
-    p <= 0 || p > balance;
+  document.getElementById("confirmBtn").disabled = p <= 0 || p > balance;
 }
 
+/* ===== redeem ===== */
 async function confirmRedeem() {
-  if (!liff.isInClient()) {
-    alert("กรุณาเปิดผ่าน LINE");
-    return;
-  }
-
   try {
     const result = await liff.scanCodeV2();
     const qrData = JSON.parse(result.value);
-    await redeemPoint(qrData);
-  } catch {
-    alert("ยกเลิกการสแกน");
+
+    const res = await fetch(`/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        line_user_id: userId,
+        use_point: Number(input),
+        nonce: qrData.nonce
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
+    liff.closeWindow();
+
+  } catch (err) {
+    alert("ยกเลิกหรือเกิดข้อผิดพลาด");
+    liff.closeWindow();
   }
-}
-
-async function redeemPoint(qrData) {
-  const res = await fetch(`${API}/redeem`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      line_user_id: userId,
-      use_point: Number(input),
-      machine_id: qrData.machine_id,
-      amount: qrData.amount,
-      nonce: qrData.nonce,
-      expire: qrData.expire
-    })
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    alert(data.error || "ใช้แต้มไม่สำเร็จ");
-    return;
-  }
-
-  alert(`🎉 ใช้แต้มสำเร็จ\nใช้ไป ${data.used} แต้ม\nคงเหลือ ${data.balance} แต้ม`);
-  liff.closeWindow();
 }
 
 main();
 </script>
-
 </body>
 </html>
