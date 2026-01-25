@@ -8,6 +8,16 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 
+app.disable("x-powered-by");
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED REJECTION", err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION", err);
+});
+
 /* =======================
    MIDDLEWARE (ต้องอยู่บนสุด)
 ======================= */
