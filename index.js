@@ -10,6 +10,11 @@ const crypto = require("crypto");
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 
+const cors = require("cors");
+
+app.use(cors());
+app.use(express.json());
+
 /* =======================
    INIT
 ======================= */
@@ -60,6 +65,7 @@ app.post("/webhook", (req, res) => {
 /* =======================
    LIFF CONSUME (รับแต้ม)
 ======================= */
+
 app.get("/liff/consume", async (req, res) => {
   const { token, userId } = req.query;
   console.log("🔥 CONSUME:", token, userId);

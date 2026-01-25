@@ -6,10 +6,11 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
 <body>
-  <h1 style="color:red">LIFF VERSION DEBUG 001</h1>
-  <h2 id="status">กำลังตรวจสอบ QR...</h2>
+  <h2>กำลังตรวจสอบ QR...</h2>
 
   <script>
+    const BACKEND = "https://90-production.up.railway.app";
+
     async function main() {
       try {
         // 1. init LIFF
@@ -21,45 +22,36 @@
           return;
         }
 
-        // 3. อ่าน token
+        // 3. อ่าน token จาก URL
         const params = new URLSearchParams(window.location.search);
         const token = params.get("token");
 
-        alert("TOKEN = " + token);
-
         if (!token) {
-          document.getElementById("status").innerText = "❌ ไม่พบ token";
+          document.body.innerHTML = "❌ ไม่พบ token";
           return;
         }
 
-        // 4. get user profile
+        // 4. get userId
         const profile = await liff.getProfile();
         const userId = profile.userId;
 
-        alert("USER ID = " + userId);
+        document.body.innerHTML = "<h3>กำลังรับแต้ม...</h3>";
 
-        document.getElementById("status").innerText = "⏳ กำลังรับแต้ม...";
-
-        // 5. เรียก backend (ใช้ absolute URL ชัวร์สุด)
+        // 5. เรียก backend (จุดนี้เท่านั้น)
         const res = await fetch(
-          `https://90-production.up.railway.app/liff/consume?token=${token}&userId=${userId}`
+          `${BACKEND}/liff/consume?token=${token}&userId=${userId}`
         );
 
-        const text = await res.text();
-        document.body.innerHTML = text;
+        const html = await res.text();
+        document.body.innerHTML = html;
 
-        // 6. ปิดหน้าทันที (ไม่ต้องรอ)
-        setTimeout(() => {
-          liff.closeWindow();
-        }, 1000);
-
-      } catch (err) {
-        console.error(err);
-        document.body.innerHTML =
-        "<h3>❌ ERROR</h3><pre>" + err.message + "</pre>";
         setTimeout(() => {
           liff.closeWindow();
         }, 1500);
+
+      } catch (err) {
+        console.error(err);
+        document.body.innerHTML = "❌ ERROR<br/>" + err.message;
       }
     }
 
