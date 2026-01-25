@@ -215,7 +215,7 @@ async function confirmRedeem() {
     const result = await liff.scanCodeV2();
     const qrData = JSON.parse(result.value);
 
-    const res = await fetch(`/redeem`, {
+    const res = await fetch(`${API}/redeem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
