@@ -181,8 +181,8 @@ async function main() {
     userId = profile.userId;
 
     const res = await fetchWithTimeout(
-      `${API}/balance?userId=${userId}`
-    );
+  `${API}/api/balance?userId=${userId}`
+);
 
     const data = await res.json();
     balance = data.balance || 0;
@@ -215,7 +215,7 @@ async function confirmRedeem() {
     const result = await liff.scanCodeV2();
     const qrData = JSON.parse(result.value);
 
-    const res = await fetch(`${API}/redeem`, {
+    const res = await fetch(`${API}/api/redeem`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
