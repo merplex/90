@@ -231,6 +231,13 @@ app.get("/liff/redeem-execute", async (req, res) => {
       .from("memberWallet")
       .update({ point_balance: newBalance })
       .eq("member_id", member.id);
+    
+    //3.5 ✨ เพิ่มตรงนี้: บันทึกประวัติการหักแต้มลงในตาราง redeemLogs
+    await supabase.from("redeemLogs").insert({
+      member_id: member.id,
+      machine_id: machine_id,
+      points_redeemed: parseInt(amount)
+    });
 
     // 4. ส่ง Push Message แจ้งเตือนลูกค้า
     await sendReplyPush(userId, `✅ ใช้แต้มสำเร็จ! \nหักไป: ${redeemAmount} แต้ม \nเครื่อง: ${machine_id} \nคงเหลือ: ${newBalance} แต้ม`);
@@ -328,6 +335,23 @@ async function sendScanRequest(replyToken, amount) {
     console.log(`✅ ส่งปุ่มเปิดกล้อง (${amount} แต้ม) เรียบร้อย`);
   } catch (e) {
     console.error("❌ ส่ง Flex Message ไม่ได้:", e.response ? e.response.data : e.message);
+  }
+}
+// --- ฟังก์ชันส่ง Push Message (สำหรับแจ้งเตือนตอนหักแต้มสำเร็จ) ---
+async function sendReplyPush(to, text) {
+  try {
+    await axios.post("https://api.line.me/v2/bot/message/push", {
+      to: to,
+      messages: [{ type: "text", text: text }]
+    }, {
+      headers: { 
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log("✅ Push Notification Sent");
+  } catch (e) {
+    console.error("❌ Push Error:", e.response ? e.response.data : e.message);
   }
 }
 
