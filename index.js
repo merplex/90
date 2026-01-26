@@ -165,134 +165,96 @@ app.post("/create-qr", async (req, res) => {
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
-  app.post("/webhook", async (req, res) => {
-  const events = req.body.events;
+  
   for (let event of events) {
     const userId = event.source.userId;
-
-    // ✨ 1. ระบุ Admin ID (ใช้ Array ตามที่เปรมต้องการ)
+    // 🔒 Admin IDs (เปรมและแอดมินคนที่ 2)
     const ADMIN_IDS = ["U8d1d21082843a3aedb6cdd65f8779454", "Ud739afa32a9004fd318892feab424598"]; 
 
-    // ✨ 2. ถ้าไม่ใช่แอดมินทักมา ให้จำ ID ลูกค้าคนล่าสุดไว้
+    // ✨ 1. [ADMIN SYSTEM] ถ้าลูกค้าทักมา -> จำ ID และส่งแผงปุ่มให้แอดมิน
     if (event.type === "message" && !ADMIN_IDS.includes(userId)) {
-      await supabase.from("last_chat").update({ last_user_id: userId }).eq("id", 1);
-      
-      // ส่งแผงควบคุมให้แอดมินทันที (Optional: ถ้าเปรมอยากให้ปุ่มเด้งตอนลูกค้าทัก)
-      await sendAdminController(ADMIN_IDS[0], userId); 
+      try {
+        await supabase.from("last_chat").update({ last_user_id: userId }).eq("id", 1);
+        await sendAdminController(ADMIN_IDS[0], userId); 
+      } catch (e) { console.error("❌ Last Chat Error:", e.message); }
     }
 
-    // --- ส่วนเช็กข้อความ (Text Message) ---
-    if (event.type === "message" && event.message.type === "text") {
-       const userMsg = event.message.text.toUpperCase();
-       // ... โค้ด CHECK_POINT, REDEEM, REFUND และ "จะเพิ่มแต้มให้" ...
-    }
-
-    // ✨ 3. ส่วน Handling Postback (วางไว้ที่นี่!)
-    // วางอยู่นอก if (event.type === "message") แต่อยู่ใน for loop นะครับ
-    else if (event.type === "postback") {
+    // ✨ 2. [POSTBACK] ส่วนรับค่าจากการกดปุ่ม 20 ปุ่มของแอดมิน
+    if (event.type === "postback") {
       const data = new URLSearchParams(event.postback.data);
-      const action = data.get("action");
-      const pts = parseInt(data.get("pts"));
-      const customerUid = data.get("uid");
-
-      if (action === "add" && ADMIN_IDS.includes(userId)) {
-        try {
-          // Logic การเพิ่มแต้มที่คุยกัน (ดึง member -> อัปเดต wallet -> ส่งแจ้งเตือน)
-          // ... (โค้ดส่วนเพิ่มแต้ม) ...
-          await sendReply(event.replyToken, `✅ เติมเรียบร้อย! +${pts} แต้ม`);
-        } catch (e) { console.error(e); }
+      if (data.get("action") === "add" && ADMIN_IDS.includes(userId)) {
+        const pts = parseInt(data.get("pts"));
+        const customerUid = data.get("uid");
+        await addPointToUser(customerUid, pts, event.replyToken);
       }
+      continue; // จบเหตุการณ์ postback ให้ข้ามไปอันถัดไป
     }
-  }
-  res.sendStatus(200);
-});
 
-  for (let event of events) {
+    // ✨ 3. [MESSAGE] ส่วนจัดการข้อความตัวอักษร
     if (event.type === "message" && event.message.type === "text") {
-      const userId = event.source.userId;
-      const userMsg = event.message.text.toUpperCase(); // แปลงเป็นตัวพิมพ์ใหญ่ทั้งหมด
+      const userMsg = event.message.text.toUpperCase();
 
       try {
+        // ดึงข้อมูลสมาชิก (คนพิมพ์)
         const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
-        if (!member) return res.sendStatus(200);
+        if (!member) continue; 
 
+        // --- คำสั่ง CHECK_POINT ---
         if (userMsg === "CHECK_POINT") {
           const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           await sendReply(event.replyToken, `🌟 คุณมีแต้มสะสม: ${wallet?.point_balance || 0} แต้ม`);
         } 
         
+        // --- คำสั่ง REDEEM (เช็กแต้มพอก่อนสแกน) ---
         else if (userMsg.startsWith("REDEEM_")) {
           const amount = parseInt(userMsg.split("_")[1]);
           const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           
           if ((wallet?.point_balance || 0) < amount) {
-            await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ (มี ${wallet.point_balance} ใช้ ${amount})`);
+            await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ (มี ${wallet.point_balance || 0} ใช้ ${amount})`);
           } else {
-            // ส่ง Flex Message บอกให้สแกน (ยังไม่หักแต้ม!)
             await sendScanRequest(event.replyToken, amount);
           }
         }
-        // ... ภายในส่วน app.post("/webhook", ...) ...
-        // ... หลังจากการหาค่า member ...
 
+        // --- คำสั่ง REFUND (คืนแต้มเฉพาะที่ Pending) ---
         else if (userMsg === "REFUND") {
-          console.log(`💰 [REFUND] เริ่มตรวจสอบรายการคืนแต้มสำหรับ User: ${userId}`);
-  
-          try {
-          // 1. ค้นหารายการล่าสุดจากตาราง redeemlogs ที่สถานะยังเป็น 'pending' เท่านั้น
-            const { data: lastLog, error: logError } = await supabase
+          const { data: lastLog, error: logError } = await supabase
             .from("redeemlogs")
             .select("*")
             .eq("member_id", member.id)
-            .eq("status", 'pending') // 🔒 🔐 คืนได้เฉพาะรายการที่ยังไม่สำเร็จ (pending)
+            .eq("status", 'pending')
             .order("created_at", { ascending: false })
             .limit(1)
             .single();
 
-          // กรณีหาไม่เจอ หรือเครื่องทำงานสำเร็จ (complete) ไปแล้ว
           if (logError || !lastLog) {
-            console.log("❌ [REFUND] ไม่พบรายการที่คืนได้");
-            return await sendReply(event.replyToken, "❌ ไม่พบรายการที่ค้างอยู่ค่ะ\n(รายการล่าสุดอาจจะทำงานสำเร็จไปแล้ว หรือยังไม่มีการหักแต้มเข้ามา)");
+            await sendReply(event.replyToken, "❌ ไม่พบรายการที่ค้างอยู่ค่ะ (รายการล่าสุดอาจจะสำเร็จไปแล้ว หรือยังไม่มีการใช้แต้ม)");
+          } else {
+            const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+            const newTotal = (wallet?.point_balance || 0) + lastLog.points_redeemed;
+
+            await supabase.from("memberWallet").update({ point_balance: newTotal }).eq("member_id", member.id);
+            await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", lastLog.id);
+            
+            await sendReply(event.replyToken, `💰 ระบบคืนแต้มให้แล้วค่ะ!\n+ คืนให้: ${lastLog.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม`);
           }
-
-          // 2. ดึงแต้มปัจจุบันจาก Wallet เพื่อบวกคืน
-          const { data: wallet } = await supabase
-            .from("memberWallet")
-            .select("point_balance")
-            .eq("member_id", member.id)
-            .single();
-
-          const currentBalance = wallet ? (wallet.point_balance || 0) : 0;
-          const newTotal = currentBalance + lastLog.points_redeemed;
-
-          // 3. ทำการคืนแต้มเข้า Wallet และเปลี่ยนสถานะ Log เป็น 'refunded'
-          // อัปเดต Wallet
-          await supabase.from("memberWallet")
-            .update({ point_balance: newTotal })
-            .eq("member_id", member.id);
-
-          // อัปเดตสถานะใน Log เพื่อปิดรายการ
-          await supabase.from("redeemlogs")
-            .update({ 
-              status: 'refunded', 
-              is_refunded: true 
-            })
-            .eq("id", lastLog.id);
-
-          console.log(`✅ [REFUND] คืนแต้มสำเร็จ: ${lastLog.points_redeemed} pts`);
-
-          // 4. แจ้งผลทาง LINE
-          await sendReply(event.replyToken, `💰 ระบบคืนแต้มให้แล้วค่ะ!\n\n+ คืนให้: ${lastLog.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม\n(รายการเครื่อง ${lastLog.machine_id} ถูกยกเลิกเรียบร้อย)`);
-
-        } catch (err) {
-          console.error("💀 [REFUND ERROR]:", err.message);
-          await sendReply(event.replyToken, "⚠️ เกิดข้อผิดพลาดในระบบคืนแต้ม กรุณาลองใหม่ภายหลังค่ะ");
         }
-      } // <--- ปิด else if (userMsg === "REFUND")
-    } catch (e) { console.error(e); } // <--- ปิด try ของ webhook หลัก
-  } // <--- ปิด if (event.type === "message")
-} // <--- ปิด for (let event of events)
-res.sendStatus(200);
+
+        // --- คำสั่งแอดมินแบบพิมพ์ (ถ้าเปรมถนัดพิมพ์มากกว่ากดปุ่ม) ---
+        else if (userMsg.includes("จะเพิ่มแต้มให้") && ADMIN_IDS.includes(userId)) {
+          const match = userMsg.match(/จะเพิ่มแต้มให้\s*(\d+)/);
+          const pts = match ? parseInt(match[1]) : 0;
+          const { data: chat } = await supabase.from("last_chat").select("last_user_id").eq("id", 1).single();
+          if (pts > 0 && chat?.last_user_id) {
+            await addPointToUser(chat.last_user_id, pts, event.replyToken);
+          }
+        }
+
+      } catch (e) { console.error("💀 Webhook Loop Error:", e); }
+    }
+  }
+  res.sendStatus(200);
 });
 
 
