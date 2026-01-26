@@ -255,6 +255,51 @@ async function sendReply(replyToken, text) {
     console.error("❌ Reply Error:", e.response ? e.response.data : e.message);
   }
 }
+// --- ฟังก์ชันส่ง Flex Message สำหรับปุ่มเปิดกล้องสแกน ---
+async function sendScanRequest(replyToken, amount) {
+  const flexData = {
+    type: "flex",
+    altText: "ยืนยันการใช้แต้ม",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box", layout: "vertical", contents: [
+          { type: "text", text: "📷 พร้อมใช้งานแล้ว", weight: "bold", size: "lg", color: "#00b900" },
+          { type: "text", text: `กดปุ่มด้านล่างเพื่อสแกน QR ที่เครื่องเพื่อใช้ ${amount} แต้ม`, wrap: true, margin: "md" }
+        ]
+      },
+      footer: {
+        type: "box", layout: "vertical", contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#00b900",
+            action: {
+              type: "uri",
+              label: "เปิดกล้องสแกน",
+              uri: "https://line.me/R/nv/QRCodeReader" // คำสั่งเปิดกล้อง LINE
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  try {
+    await axios.post("https://api.line.me/v2/bot/message/reply", {
+      replyToken: replyToken,
+      messages: [flexData]
+    }, {
+      headers: { 
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log(`✅ ส่งปุ่มเปิดกล้อง (${amount} แต้ม) เรียบร้อย`);
+  } catch (e) {
+    console.error("❌ ส่ง Flex Message ไม่ได้:", e.response ? e.response.data : e.message);
+  }
+}
 
 
 // --- Start Server ---
