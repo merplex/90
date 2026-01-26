@@ -233,7 +233,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
       .eq("member_id", member.id);
     
     //3.5 ✨ เพิ่มตรงนี้: บันทึกประวัติการหักแต้มลงในตาราง redeemLogs
-    await supabase.from("redeemLogs").insert({
+    await supabase.from("redeemlogs").insert({
       member_id: member.id,
       machine_id: machine_id,
       points_redeemed: parseInt(amount)
