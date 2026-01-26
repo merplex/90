@@ -124,7 +124,8 @@ app.post("/create-qr", async (req, res) => {
     console.log(`📍 STEP 3: สร้าง Token สำเร็จ (${token})`);
 
     const point = Math.floor(amount / 10);
-    const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
+    const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}?bot_link=aggressive&token=${token}`;
+
 
     console.log("📍 STEP 4: กำลังส่งเข้า Supabase...");
 
