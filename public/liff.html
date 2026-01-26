@@ -6,67 +6,74 @@
   <title>สะสมแต้ม</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 40px 20px; }
-    .btn { background: #00b900; color: white; border: none; padding: 10px 20px; border-radius: 5px; display: none; margin: 20px auto; }
+    body { font-family: sans-serif; text-align: center; padding: 40px 20px; background-color: #f4f7f6; }
+    .status-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .btn { background: #00b900; color: white; border: none; padding: 12px 25px; border-radius: 8px; display: none; margin: 20px auto; cursor: pointer; }
+    .debug-info { font-size: 11px; color: #666; margin-top: 20px; word-break: break-all; text-align: left; background: #eee; padding: 15px; border-radius: 8px; border: 1px solid #ccc; }
   </style>
 </head>
 <body>
-  <div id="status">
-    <h3>กำลังเชื่อมต่อระบบ...</h3>
-    <p>กรุณารอสักครู่</p>
+  <div class="status-card">
+    <div id="status">
+      <h3>🌀 กำลังเชื่อมต่อระบบ...</h3>
+      <p>โปรดรอสักครู่ค่ะเปรม</p>
+    </div>
+    <button id="closeBtn" class="btn" onclick="liff.closeWindow()">ปิดหน้าต่าง</button>
   </div>
-  <button id="closeBtn" class="btn" onclick="liff.closeWindow()">ปิดหน้าต่าง</button>
+
+  <div id="debug" class="debug-info">📍 Debug Status: รอการเชื่อมต่อ...</div>
 
   <script>
-    const BACKEND = "https://90-production.up.railway.app";
     const statusDiv = document.getElementById("status");
+    const debugDiv = document.getElementById("debug");
 
     async function main() {
       try {
-        // จุดที่ 1: ตรวจสอบการ Init
+        debugDiv.innerHTML = "📍 Debug: กำลังเริ่ม liff.init...";
         await liff.init({ liffId: "2008944819-hKnqP5yy" });
         
-        // จุดที่ 2: ปรับปรุงการ Login ให้จำค่าเดิม (Token) ได้แม่นยำขึ้น
         if (!liff.isLoggedIn()) { 
+          debugDiv.innerHTML = "📍 Debug: ยังไม่ได้ Login กำลังไปหน้า Login...";
           liff.login({ redirectUri: window.location.href }); 
-        
           return; 
         }
 
-        const token = new URLSearchParams(window.location.search).get("token");
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get("token");
+        
+        debugDiv.innerHTML = `📍 Debug: Login แล้ว | Token = ${token ? '✅ พบ' : '❌ ไม่พบ'}`;
+
         if (!token) {
-          statusDiv.innerHTML = "<h3>❌ ไม่พบข้อมูล Token</h3><p>รหัสคิวอาร์อาจไม่ถูกต้อง</p>";
+          statusDiv.innerHTML = "<h3>❌ ไม่พบรหัสคิวอาร์</h3><p>กรุณาสแกนใหม่จากคิวอาร์โค้ดที่ถูกต้องนะคะ</p>";
           return;
         }
 
         const profile = await liff.getProfile();
-        statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้มให้คุณ...</p>`;
+        statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้ม...</p>`;
 
-        // ใช้ทางลัดเริ่มด้วย / ไปเลยค่ะ ไม่ต้องง้อตัวแปร BACKEND แล้ว
-        const response = await fetch("/liff/consume?token=" + token + "&userId=" + profile.userId);
+        // ✨ ใช้ Relative Path ตัดปัญหา CORS
+        const targetUrl = `/liff/consume?token=${token}&userId=${profile.userId}`;
+        debugDiv.innerHTML += `<br>🚀 กำลังยิง Fetch ไปที่: ${targetUrl}`;
 
-
+        const response = await fetch(targetUrl);
         const resultText = await response.text();
 
+        debugDiv.innerHTML += `<br>📡 ตอบกลับจาก Server: ${response.status} ${response.statusText}`;
+
         if (response.ok) {
-          statusDiv.innerHTML = `<h3>✅ สำเร็จ</h3><p>${resultText}</p>`;
-          setTimeout(() => liff.closeWindow(), 3000);
+          statusDiv.innerHTML = `<h3>✅ สำเร็จ!</h3><p>${resultText}</p>`;
+          setTimeout(() => liff.closeWindow(), 4000);
         } else {
-          statusDiv.innerHTML = `<h3>❌ ไม่สำเร็จ</h3><p>Backend: ${resultText}</p>`;
+          statusDiv.innerHTML = `<h3>❌ บันทึกไม่สำเร็จ</h3><p>${resultText}</p>`;
           document.getElementById("closeBtn").style.display = "block";
         }
 
       } catch (err) {
-        // ✨ จุดสำคัญ: เปลี่ยนจากข้อความกว้างๆ เป็นการโชว์ Error ที่เกิดขึ้นจริง
-        statusDiv.innerHTML = `
-          <h3>❌ เชื่อมต่อล้มเหลว</h3>
-          <p style="color:red; font-size:14px;">สาเหตุ: ${err.message}</p>
-          <p style="font-size:12px; color:gray;">ตรวจสอบสิทธิ์ Profile หรือ LIFF ID อีกครั้ง</p>
-        `;
+        statusDiv.innerHTML = `<h3>❌ เชื่อมต่อล้มเหลว</h3><p style="color:red;">สาเหตุ: ${err.message}</p>`;
+        debugDiv.innerHTML += `<br>🔴 ERROR สดๆ: ${err.stack}`;
         document.getElementById("closeBtn").style.display = "block";
       }
     }
-    
     main();
   </script>
 </body>
