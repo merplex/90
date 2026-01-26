@@ -152,6 +152,92 @@ app.post("/create-qr", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/* ====================================
+   1. WEBHOOK: เช็กสิทธิ์ก่อนใช้แต้ม 🔍
+==================================== */
+app.post("/webhook", async (req, res) => {
+  const events = req.body.events;
+  for (let event of events) {
+    if (event.type === "message" && event.message.type === "text") {
+      const userId = event.source.userId;
+      const userMsg = event.message.text;
+
+      try {
+        const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
+        if (!member) return res.sendStatus(200);
+
+        if (userMsg === "CHECK_POINT") {
+          const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+          await sendReply(event.replyToken, `🌟 คุณมีแต้มสะสม: ${wallet?.point_balance || 0} แต้ม`);
+        } 
+        
+        else if (userMsg.startsWith("redeem_")) {
+          const amount = parseInt(userMsg.split("_")[1]);
+          const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+          
+          if ((wallet?.point_balance || 0) < amount) {
+            await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ (มี ${wallet.point_balance} ใช้ ${amount})`);
+          } else {
+            // ส่ง Flex Message บอกให้สแกน (ยังไม่หักแต้ม!)
+            await sendScanRequest(event.replyToken, amount);
+          }
+        }
+      } catch (e) { console.error(e); }
+    }
+  }
+  res.sendStatus(200);
+});
+
+/* ====================================
+   2. API สำหรับสแกนที่เครื่องเพื่อ "หักแต้ม" 💸
+   (QR ที่เครื่อง HMI ของเปรมต้องใช้ลิงก์นี้)
+==================================== */
+app.get("/liff/redeem-execute", async (req, res) => {
+  try {
+    const { userId, amount, machineId } = req.query; // รับค่าจาก QR ที่เครื่อง
+
+    // 1. หา Member และ Wallet
+    const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
+    const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+
+    if (wallet.point_balance < amount) return res.send("❌ แต้มไม่พอสำหรับการใช้งานเครื่องนี้");
+
+    // 2. หักแต้มจริง!
+    const newBalance = wallet.point_balance - amount;
+    await supabase.from("memberWallet").update({ point_balance: newBalance }).eq("member_id", member.id);
+
+    // 3. บันทึก Log การใช้งานเครื่อง (ถ้าเปรมมีตาราง log)
+    console.log(`✅ Machine ${machineId} started for User ${userId}. Deducted ${amount} pts.`);
+
+    res.send(`✅ หัก ${amount} แต้มสำเร็จ! เครื่อง ${machineId} กำลังทำงาน... แต้มคงเหลือ: ${newBalance}`);
+  } catch (err) {
+    res.status(500).send("ระบบขัดข้อง: " + err.message);
+  }
+});
+
+// ฟังก์ชันส่งปุ่มเปิดกล้องแบบสวยๆ
+async function sendScanRequest(replyToken, amount) {
+  const flexData = {
+    type: "flex", altText: "ยืนยันการใช้แต้ม",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box", layout: "vertical", contents: [
+          { type: "text", text: "📷 พร้อมใช้งานแล้ว", weight: "bold", size: "lg" },
+          { type: "text", text: `กดปุ่มด้านล่างเพื่อสแกน QR ที่เครื่องเพื่อใช้ ${amount} แต้ม`, wrap: true, margin: "md" }
+        ]
+      },
+      footer: {
+        type: "box", layout: "vertical", contents: [
+          { type: "button", style: "primary", color: "#00b900", action: { type: "uri", label: "เปิดกล้องสแกน", uri: "https://line.me/R/nv/QRCodeReader" } }
+        ]
+      }
+    }
+  };
+  await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken, messages: [flexData] }, {
+    headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+  });
+}
 
 
 // --- Start Server ---
