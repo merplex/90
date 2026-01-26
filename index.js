@@ -18,10 +18,10 @@ app.use(express.static("public")); // <--- ✨ เพิ่มบรรทัด
 
 // --- 1. ส่วนสำคัญที่สุด: Health Check ---
 // Railway จะยิงมาที่นี่ ถ้าตอบ 200 OK แสดงว่ารอด!
-app.get("/", (req, res) => {
-  console.log("🟢 Health Check: Railway is checking me!");
-  res.status(200).send("I am alive and ready!");
-});
+//app.get("/", (req, res) => {
+//  console.log("🟢 Health Check: Railway is checking me!");
+//  res.status(200).send("I am alive and ready!");
+//});
 
 // --- Config Supabase ---
 const supabase = createClient(
@@ -189,31 +189,61 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ====================================
-   2. API สำหรับสแกนที่เครื่องเพื่อ "หักแต้ม" 💸
-   (QR ที่เครื่อง HMI ของเปรมต้องใช้ลิงก์นี้)
+   API: สำหรับหักแต้ม (ใช้ชื่อตัวแปรเดียวกับระบบรับแต้ม) 💸
 ==================================== */
 app.get("/liff/redeem-execute", async (req, res) => {
+  console.log("💳 [REDEEM] เริ่มกระบวนการตัดแต้ม...");
+  
   try {
-    const { userId, amount, machineId } = req.query; // รับค่าจาก QR ที่เครื่อง
+    // ✨ เปลี่ยนชื่อตามที่เปรมต้องการ: amount และ machine_id
+    const { userId, amount, machine_id } = req.query;
 
-    // 1. หา Member และ Wallet
-    const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
-    const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+    if (!userId || !amount || !machine_id) {
+      return res.status(400).send("ข้อมูลไม่ครบ (ต้องการ userId, amount, machine_id)");
+    }
 
-    if (wallet.point_balance < amount) return res.send("❌ แต้มไม่พอสำหรับการใช้งานเครื่องนี้");
+    // 1. หาข้อมูลสมาชิก
+    const { data: member } = await supabase
+      .from("ninetyMember")
+      .select("id")
+      .eq("line_user_id", userId)
+      .single();
 
-    // 2. หักแต้มจริง!
-    const newBalance = wallet.point_balance - amount;
-    await supabase.from("memberWallet").update({ point_balance: newBalance }).eq("member_id", member.id);
+    if (!member) return res.status(404).send("ไม่พบสมาชิกในระบบ");
 
-    // 3. บันทึก Log การใช้งานเครื่อง (ถ้าเปรมมีตาราง log)
-    console.log(`✅ Machine ${machineId} started for User ${userId}. Deducted ${amount} pts.`);
+    // 2. เช็กยอดเงิน/แต้มล่าสุด
+    const { data: wallet } = await supabase
+      .from("memberWallet")
+      .select("point_balance")
+      .eq("member_id", member.id)
+      .single();
 
-    res.send(`✅ หัก ${amount} แต้มสำเร็จ! เครื่อง ${machineId} กำลังทำงาน... แต้มคงเหลือ: ${newBalance}`);
+    const currentBalance = wallet ? wallet.point_balance : 0;
+    const redeemAmount = parseInt(amount);
+
+    if (currentBalance < redeemAmount) {
+      return res.status(400).send(`ยอดแต้มไม่พอ (มี ${currentBalance}, จะใช้ ${redeemAmount})`);
+    }
+
+    // 3. หักแต้มจริงใน Database
+    const newBalance = currentBalance - redeemAmount;
+    await supabase
+      .from("memberWallet")
+      .update({ point_balance: newBalance })
+      .eq("member_id", member.id);
+
+    // 4. ส่ง Push Message แจ้งเตือนลูกค้า
+    await sendReplyPush(userId, `✅ ใช้แต้มสำเร็จ! \nหักไป: ${redeemAmount} แต้ม \nเครื่อง: ${machine_id} \nคงเหลือ: ${newBalance} แต้ม`);
+
+    // 5. ตอบกลับหน้าจอ LIFF (เพื่อให้ตู้ HMI อ่านค่า SUCCESS ได้)
+    res.send(`SUCCESS: MACHINE_${machine_id}_START`);
+
   } catch (err) {
-    res.status(500).send("ระบบขัดข้อง: " + err.message);
+    console.error("Redeem Error:", err.message);
+    res.status(500).send("System Error: " + err.message);
   }
 });
+
 
 // ฟังก์ชันส่งปุ่มเปิดกล้องแบบสวยๆ
 async function sendScanRequest(replyToken, amount) {

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ninety Service</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        :root { --line-green: #00b900; --bg-grey: #f4f7f6; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: var(--bg-grey); margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; color: #333; }
+        .card { background: white; width: 85%; max-width: 400px; padding: 40px 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        .icon-box { font-size: 60px; margin-bottom: 20px; }
+        .status-text { font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; }
+        .detail-text { color: #777; font-size: 0.9rem; line-height: 1.5; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid var(--line-green); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .btn-close { margin-top: 30px; background: var(--line-green); color: white; border: none; padding: 12px 30px; border-radius: 25px; font-weight: bold; cursor: pointer; display: none; }
+        .success-icon { color: var(--line-green); display: none; }
+        .error-icon { color: #ff4b4b; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div id="loader" class="loader"></div>
+    <div id="iconBox" class="icon-box">
+        <span id="successIcon" class="success-icon">✅</span>
+        <span id="errorIcon" class="error-icon">❌</span>
+    </div>
+    <div id="statusText" class="status-text">กำลังประมวลผล...</div>
+    <div id="detailText" class="detail-text">กรุณารอสักครู่ ระบบกำลังสื่อสารกับเครื่อง</div>
+    <button id="btnClose" class="btn-close" onclick="liff.closeWindow()">ตกลง</button>
+</div>
+
+<script>
+    async function main() {
+        try {
+            await liff.init({ liffId: "2008944819-hKnqP5yy" }); // 👈 ใส่ LIFF ID ของเปรมตรงนี้ค่ะ
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
+
+            const profile = await liff.getProfile();
+            const userId = profile.userId;
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // ตรวจสอบ Parameter เพื่อแยกฝั่ง
+            const action = urlParams.get('action'); // 'use' สำหรับหักแต้ม
+            const token = urlParams.get('token');   // สำหรับรับแต้ม
+            const amount = urlParams.get('amount');
+            const machine_id = urlParams.get('machine_id');
+
+            let apiUrl = "";
+            if (action === "use") {
+                // --- ฝั่งหักแต้ม ---
+                document.getElementById('statusText').innerText = "กำลังหักแต้ม...";
+                apiUrl = `/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machine_id}`;
+            } else {
+                // --- ฝั่งรับแต้ม ---
+                document.getElementById('statusText').innerText = "กำลังสะสมแต้ม...";
+                apiUrl = `/liff/consume?token=${token}&userId=${userId}`;
+            }
+
+            // เรียก API ไปที่ Backend
+            const response = await fetch(apiUrl);
+            const result = await response.text();
+
+            // แสดงผลลัพธ์
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('btnClose').style.display = 'inline-block';
+
+            if (response.ok) {
+                document.getElementById('successIcon').style.display = 'inline';
+                document.getElementById('statusText').innerText = "สำเร็จเรียบร้อย!";
+                document.getElementById('detailText').innerText = result;
+            } else {
+                document.getElementById('errorIcon').style.display = 'inline';
+                document.getElementById('statusText').innerText = "เกิดข้อผิดพลาด";
+                document.getElementById('detailText').innerText = result;
+            }
+
+        } catch (err) {
+            console.error(err);
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('statusText').innerText = "System Error";
+            document.getElementById('detailText').innerText = err.message;
+        }
+    }
+    main();
+</script>
+
+</body>
+</html>
