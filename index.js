@@ -87,12 +87,53 @@ app.get("/liff/consume", async (req, res) => {
 });
 
 /* =======================
-   CREATE QR API
+   CREATE QR API (แบบติดกล้องวงจรปิด 📹)
 ======================= */
 app.post("/create-qr", async (req, res) => {
-  // โค้ดส่วนสร้าง QR (ใส่ตามเดิมได้เลยครับ)
-  res.status(200).send("QR Create endpoint"); 
+  console.log("📍 STEP 1: Request เข้ามาแล้ว");
+
+  try {
+    const { amount, machine_id } = req.body;
+    console.log(`📍 STEP 2: รับค่า amount=${amount}, machine=${machine_id}`);
+
+    if (!amount || !machine_id) {
+        console.log("❌ STEP 2.5: ข้อมูลไม่ครบ");
+        return res.status(400).json({ error: "Missing data" });
+    }
+
+    // สร้าง Token
+    const token = crypto.randomUUID(); 
+    console.log(`📍 STEP 3: สร้าง Token สำเร็จ (${token})`);
+
+    const point = Math.floor(amount / 10);
+    const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
+
+    console.log("📍 STEP 4: กำลังส่งเข้า Supabase...");
+
+    // บันทึก
+    const { data, error } = await supabase.from("qrPointToken").insert({
+      qr_token: token,
+      scan_amount: amount,
+      point_get: point,
+      machine_id: machine_id,
+      qr_url: liffUrl,
+      is_used: false
+    }).select();
+
+    if (error) {
+        console.error("❌ STEP 5: Supabase Error!", error);
+        throw error;
+    }
+
+    console.log("✅ STEP 6: บันทึกสำเร็จ! Data:", data);
+    res.json({ qr_url: liffUrl });
+
+  } catch (err) {
+    console.error("💀 FATAL ERROR:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
+
 
 // --- Start Server ---
 const PORT = process.env.PORT || 8080;
