@@ -43,18 +43,16 @@
         
         debugDiv.innerHTML = `📍 Debug: Login แล้ว | Token = ${token ? '✅ พบ' : '❌ ไม่พบ'}`;
 
-        if (!token) {
-          statusDiv.innerHTML = "<h3>❌ ไม่พบรหัสคิวอาร์</h3><p>กรุณาสแกนใหม่จากคิวอาร์โค้ดที่ถูกต้องนะคะ</p>";
-          return;
-        }
-
         const profile = await liff.getProfile();
         statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้ม...</p>`;
 
-        // ✨ ใช้ Relative Path ตัดปัญหา CORS
-        const targetUrl = `/liff/consume?token=${token}&userId=${profile.userId}`;
-        debugDiv.innerHTML += `<br>🚀 กำลังยิง Fetch ไปที่: ${targetUrl}`;
+        // ✨ 1. สร้าง URL แบบชัวร์ที่สุด (มีแค่บรรทัดนี้บรรทัดเดียวพอค่ะ)
+        const targetUrl = `${window.location.origin}/liff/consume?token=${token}&userId=${profile.userId}`;
 
+        // 2. แสดงผล Debug (เพื่อให้เราเห็นว่ามันส่งไปที่ไหน)
+        debugDiv.innerHTML += `<br>🚀 ส่งข้อมูลไปที่: ${targetUrl}`;
+
+        // 3. เริ่มการส่งข้อมูล (Fetch)
         const response = await fetch(targetUrl);
         const resultText = await response.text();
 
