@@ -238,6 +238,23 @@ async function sendScanRequest(replyToken, amount) {
     headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
   });
 }
+// --- ฟังก์ชันช่วยส่งข้อความตอบกลับ (ต้องมีไว้ท้ายไฟล์นะ!) ---
+async function sendReply(replyToken, text) {
+  try {
+    await axios.post("https://api.line.me/v2/bot/message/reply", {
+      replyToken: replyToken,
+      messages: [{ type: "text", text: text }]
+    }, {
+      headers: { 
+        'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log("✅ Reply Sent Successfully");
+  } catch (e) {
+    console.error("❌ Reply Error:", e.response ? e.response.data : e.message);
+  }
+}
 
 
 // --- Start Server ---
