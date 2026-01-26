@@ -41,7 +41,7 @@
         const profile = await liff.getProfile();
         statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้มให้คุณ...</p>`;
 
-        const response = await fetch(`${BACKEND}/liff/consume?token=${token}&userId=${profile.userId}`);
+        const response = await fetch(`/liff/consume?token=${token}&userId=${profile.userId}`);
         const resultText = await response.text();
 
         if (response.ok) {
