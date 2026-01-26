@@ -29,6 +29,7 @@
         // จุดที่ 2: ปรับปรุงการ Login ให้จำค่าเดิม (Token) ได้แม่นยำขึ้น
         if (!liff.isLoggedIn()) { 
           liff.login({ redirectUri: window.location.href }); 
+        
           return; 
         }
 
@@ -41,7 +42,9 @@
         const profile = await liff.getProfile();
         statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้มให้คุณ...</p>`;
 
-        const response = await fetch(`${BACKEND}/liff/consume?token=${token}&userId=${profile.userId}`);
+        // ใช้ทางลัดเริ่มด้วย / ไปเลยค่ะ ไม่ต้องง้อตัวแปร BACKEND แล้ว
+        const response = await fetch("/liff/consume?token=" + token + "&userId=" + profile.userId);
+
 
         const resultText = await response.text();
 
