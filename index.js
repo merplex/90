@@ -48,15 +48,23 @@ app.get("/liff/consume", async (req, res) => {
     if (qrError || !qrData) return res.status(404).send("ไม่พบรหัสคิวอาร์นี้");
     if (qrData.is_used) return res.status(400).send("คิวอาร์นี้ถูกใช้ไปแล้ว");
 
-    // 2. ค้นหา ID สมาชิกจากตาราง ninetyMember โดยใช้ line_user_id
-    const { data: memberData, error: memberError } = await supabase
+    // 2. ตรวจสอบสมาชิก (ถ้าไม่เจอให้สร้างใหม่เลย)
+    let { data: memberData } = await supabase
       .from("ninetyMember")
       .select("id")
       .eq("line_user_id", userId)
       .single();
 
-    if (memberError || !memberData) {
-        return res.status(404).send("ไม่พบข้อมูลสมาชิก (กรุณาลงทะเบียนก่อน)");
+    if (!memberData) {
+    // ✨ ถ้าไม่พบสมาชิก ให้ Insert ลงไปใหม่ทันที
+    const { data: newMember, error: insertError } = await supabase
+      .from("ninetyMember")
+      .insert({ line_user_id: userId })
+      .select()
+      .single();
+    
+    if (insertError) throw new Error("สร้างสมาชิกใหม่ไม่สำเร็จ");
+    memberData = newMember;
     }
 
     const member_id = memberData.id;
