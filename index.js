@@ -72,14 +72,23 @@ app.get("/liff/consume", async (req, res) => {
 
     if (rpcErr) throw rpcErr;
 
-    // 5. Line Notify
-    if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-      axios.post("https://api.line.me/v2/bot/message/push", {
-        to: userId,
-        messages: [{ type: "text", text: `ได้รับ ${qr.point_get} แต้มสำเร็จ!` }]
-      }, { headers: { Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` } })
-      .catch(e => console.error("Line Push Fail"));
+        // แก้ตรงส่วนส่ง Push Message ให้เป็น Try...Catch แยกต่างหาก
+    try {
+        if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+            await axios.post("https://api.line.me/v2/bot/message/push", {
+                to: userId,
+                messages: [{ type: "text", text: `ยินดีด้วย! คุณได้รับ ${qrData.point_get} แต้ม เรียบร้อยแล้วค่ะ` }]
+            }, {
+                headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+            });
+        }
+    } catch (pushError) {
+        console.error("⚠️ ส่ง LINE ไม่สำเร็จแต่แต้มบันทึกแล้วนะ:", pushError.message);
+        // ไม่ต้อง throw error ออกไป เพื่อให้หน้าเว็บขึ้นว่า "สำเร็จ"
     }
+
+    res.send(`บันทึก ${qrData.point_get} แต้มให้คุณเรียบร้อย!`);
+
 
     res.status(200).send("Success");
   } catch (err) {
