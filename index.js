@@ -13,6 +13,8 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static("public")); // <--- ✨ เพิ่มบรรทัดนี้ลงไปค่ะเปรม
+
 
 // --- 1. ส่วนสำคัญที่สุด: Health Check ---
 // Railway จะยิงมาที่นี่ ถ้าตอบ 200 OK แสดงว่ารอด!
