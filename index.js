@@ -165,6 +165,48 @@ app.post("/create-qr", async (req, res) => {
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
+  app.post("/webhook", async (req, res) => {
+  const events = req.body.events;
+  for (let event of events) {
+    const userId = event.source.userId;
+
+    // ✨ 1. ระบุ Admin ID (ใช้ Array ตามที่เปรมต้องการ)
+    const ADMIN_IDS = ["U8d1d21082843a3aedb6cdd65f8779454", "Ud739afa32a9004fd318892feab424598"]; 
+
+    // ✨ 2. ถ้าไม่ใช่แอดมินทักมา ให้จำ ID ลูกค้าคนล่าสุดไว้
+    if (event.type === "message" && !ADMIN_IDS.includes(userId)) {
+      await supabase.from("last_chat").update({ last_user_id: userId }).eq("id", 1);
+      
+      // ส่งแผงควบคุมให้แอดมินทันที (Optional: ถ้าเปรมอยากให้ปุ่มเด้งตอนลูกค้าทัก)
+      await sendAdminController(ADMIN_IDS[0], userId); 
+    }
+
+    // --- ส่วนเช็กข้อความ (Text Message) ---
+    if (event.type === "message" && event.message.type === "text") {
+       const userMsg = event.message.text.toUpperCase();
+       // ... โค้ด CHECK_POINT, REDEEM, REFUND และ "จะเพิ่มแต้มให้" ...
+    }
+
+    // ✨ 3. ส่วน Handling Postback (วางไว้ที่นี่!)
+    // วางอยู่นอก if (event.type === "message") แต่อยู่ใน for loop นะครับ
+    else if (event.type === "postback") {
+      const data = new URLSearchParams(event.postback.data);
+      const action = data.get("action");
+      const pts = parseInt(data.get("pts"));
+      const customerUid = data.get("uid");
+
+      if (action === "add" && ADMIN_IDS.includes(userId)) {
+        try {
+          // Logic การเพิ่มแต้มที่คุยกัน (ดึง member -> อัปเดต wallet -> ส่งแจ้งเตือน)
+          // ... (โค้ดส่วนเพิ่มแต้ม) ...
+          await sendReply(event.replyToken, `✅ เติมเรียบร้อย! +${pts} แต้ม`);
+        } catch (e) { console.error(e); }
+      }
+    }
+  }
+  res.sendStatus(200);
+});
+
   for (let event of events) {
     if (event.type === "message" && event.message.type === "text") {
       const userId = event.source.userId;
@@ -436,6 +478,49 @@ setInterval(async () => {
     console.error("❌ Auto Refund Error:", err.message);
   }
 }, 30000); // รันทุก 30 วินาที
+
+// --- ฟังก์ชันส่งแผงควบคุมแอดมิน ---
+async function sendAdminController(adminId, targetCustomerId) {
+  const points = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 250, 300, 350, 400, 450, 500, 1000, 2000];
+  
+  // สร้างปุ่มจาก Array ตัวเลข
+  const buttons = points.map(pt => ({
+    type: "button",
+    height: "sm",
+    action: {
+      type: "postback",
+      label: `+${pt}`,
+      data: `action=add&pts=${pt}&uid=${targetCustomerId}`, // ฝัง ID ลูกค้าไว้ในปุ่มเลย ไม่สลับคนแน่นอน!
+      displayText: `แอดมินกำลังเพิ่มให้ ${pt} แต้ม`
+    }
+  }));
+
+  // แบ่งแถว แถวละ 4 ปุ่ม
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 4) {
+    rows.push({
+      type: "box",
+      layout: "horizontal",
+      spacing: "sm",
+      contents: buttons.slice(i, i + 4)
+    });
+  }
+
+  const flexData = {
+    type: "flex",
+    altText: "Admin Controller",
+    contents: {
+      type: "bubble",
+      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🕹 Admin Control Panel", weight: "bold", color: "#00b900" }] },
+      body: { type: "box", layout: "vertical", spacing: "sm", contents: rows }
+    }
+  };
+
+  await axios.post("https://api.line.me/v2/bot/message/push", 
+    { to: adminId, messages: [flexData] },
+    { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}
+  );
+}
 
 
 // --- Start Server ---
