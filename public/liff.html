@@ -23,19 +23,24 @@
 
     async function main() {
       try {
+        // จุดที่ 1: ตรวจสอบการ Init
         await liff.init({ liffId: "2008944819-hKnqP5yy" });
-        if (!liff.isLoggedIn()) { liff.login(); return; }
+        
+        // จุดที่ 2: ปรับปรุงการ Login ให้จำค่าเดิม (Token) ได้แม่นยำขึ้น
+        if (!liff.isLoggedIn()) { 
+          liff.login({ redirectUri: window.location.href }); 
+          return; 
+        }
 
         const token = new URLSearchParams(window.location.search).get("token");
         if (!token) {
-          statusDiv.innerHTML = "❌ ไม่พบรหัสคิวอาร์";
+          statusDiv.innerHTML = "<h3>❌ ไม่พบข้อมูล Token</h3><p>รหัสคิวอาร์อาจไม่ถูกต้อง</p>";
           return;
         }
 
         const profile = await liff.getProfile();
         statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้มให้คุณ...</p>`;
 
-        // เรียก API
         const response = await fetch(`${BACKEND}/liff/consume?token=${token}&userId=${profile.userId}`);
         const resultText = await response.text();
 
@@ -43,11 +48,17 @@
           statusDiv.innerHTML = `<h3>✅ สำเร็จ</h3><p>${resultText}</p>`;
           setTimeout(() => liff.closeWindow(), 3000);
         } else {
-          statusDiv.innerHTML = `<h3>❌ ไม่สำเร็จ</h3><p>${resultText}</p>`;
+          statusDiv.innerHTML = `<h3>❌ ไม่สำเร็จ</h3><p>Backend: ${resultText}</p>`;
           document.getElementById("closeBtn").style.display = "block";
         }
+
       } catch (err) {
-        statusDiv.innerHTML = `<h3>❌ เชื่อมต่อล้มเหลว</h3><p>โปรดตรวจสอบอินเทอร์เน็ตหรือลองใหม่อีกครั้ง</p>`;
+        // ✨ จุดสำคัญ: เปลี่ยนจากข้อความกว้างๆ เป็นการโชว์ Error ที่เกิดขึ้นจริง
+        statusDiv.innerHTML = `
+          <h3>❌ เชื่อมต่อล้มเหลว</h3>
+          <p style="color:red; font-size:14px;">สาเหตุ: ${err.message}</p>
+          <p style="font-size:12px; color:gray;">ตรวจสอบสิทธิ์ Profile หรือ LIFF ID อีกครั้ง</p>
+        `;
         document.getElementById("closeBtn").style.display = "block";
       }
     }
