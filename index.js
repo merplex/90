@@ -160,7 +160,7 @@ app.post("/webhook", async (req, res) => {
   for (let event of events) {
     if (event.type === "message" && event.message.type === "text") {
       const userId = event.source.userId;
-      const userMsg = event.message.text;
+      const userMsg = event.message.text.toUpperCase(); // แปลงเป็นตัวพิมพ์ใหญ่ทั้งหมด
 
       try {
         const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
@@ -171,7 +171,7 @@ app.post("/webhook", async (req, res) => {
           await sendReply(event.replyToken, `🌟 คุณมีแต้มสะสม: ${wallet?.point_balance || 0} แต้ม`);
         } 
         
-        else if (userMsg.startsWith("redeem_")) {
+        else if (userMsg.startsWith("REDEEM_")) {
           const amount = parseInt(userMsg.split("_")[1]);
           const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           
