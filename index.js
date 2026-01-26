@@ -182,11 +182,69 @@ app.post("/webhook", async (req, res) => {
             await sendScanRequest(event.replyToken, amount);
           }
         }
-      } catch (e) { console.error(e); }
-    }
-  }
-  res.sendStatus(200);
+        // ... ภายในส่วน app.post("/webhook", ...) ...
+        // ... หลังจากการหาค่า member ...
+
+        else if (userMsg === "REFUND") {
+          console.log(`💰 [REFUND] เริ่มตรวจสอบรายการคืนแต้มสำหรับ User: ${userId}`);
+  
+          try {
+          // 1. ค้นหารายการล่าสุดจากตาราง redeemlogs ที่สถานะยังเป็น 'pending' เท่านั้น
+            const { data: lastLog, error: logError } = await supabase
+            .from("redeemlogs")
+            .select("*")
+            .eq("member_id", member.id)
+            .eq("status", 'pending') // 🔒 🔐 คืนได้เฉพาะรายการที่ยังไม่สำเร็จ (pending)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+
+          // กรณีหาไม่เจอ หรือเครื่องทำงานสำเร็จ (complete) ไปแล้ว
+          if (logError || !lastLog) {
+            console.log("❌ [REFUND] ไม่พบรายการที่คืนได้");
+            return await sendReply(event.replyToken, "❌ ไม่พบรายการที่ค้างอยู่ค่ะ\n(รายการล่าสุดอาจจะทำงานสำเร็จไปแล้ว หรือยังไม่มีการหักแต้มเข้ามา)");
+          }
+
+          // 2. ดึงแต้มปัจจุบันจาก Wallet เพื่อบวกคืน
+          const { data: wallet } = await supabase
+            .from("memberWallet")
+            .select("point_balance")
+            .eq("member_id", member.id)
+            .single();
+
+          const currentBalance = wallet ? (wallet.point_balance || 0) : 0;
+          const newTotal = currentBalance + lastLog.points_redeemed;
+
+          // 3. ทำการคืนแต้มเข้า Wallet และเปลี่ยนสถานะ Log เป็น 'refunded'
+          // อัปเดต Wallet
+          await supabase.from("memberWallet")
+            .update({ point_balance: newTotal })
+            .eq("member_id", member.id);
+
+          // อัปเดตสถานะใน Log เพื่อปิดรายการ
+          await supabase.from("redeemlogs")
+            .update({ 
+              status: 'refunded', 
+              is_refunded: true 
+            })
+            .eq("id", lastLog.id);
+
+          console.log(`✅ [REFUND] คืนแต้มสำเร็จ: ${lastLog.points_redeemed} pts`);
+
+          // 4. แจ้งผลทาง LINE
+          await sendReply(event.replyToken, `💰 ระบบคืนแต้มให้แล้วค่ะ!\n\n+ คืนให้: ${lastLog.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม\n(รายการเครื่อง ${lastLog.machine_id} ถูกยกเลิกเรียบร้อย)`);
+
+        } catch (err) {
+          console.error("💀 [REFUND ERROR]:", err.message);
+          await sendReply(event.replyToken, "⚠️ เกิดข้อผิดพลาดในระบบคืนแต้ม กรุณาลองใหม่ภายหลังค่ะ");
+        }
+      } // <--- ปิด else if (userMsg === "REFUND")
+    } catch (e) { console.error(e); } // <--- ปิด try ของ webhook หลัก
+  } // <--- ปิด if (event.type === "message")
+} // <--- ปิด for (let event of events)
+res.sendStatus(200);
 });
+
 
 /* ====================================
    API: สำหรับหักแต้ม (ใช้ชื่อตัวแปรเดียวกับระบบรับแต้ม) 💸
@@ -236,7 +294,8 @@ app.get("/liff/redeem-execute", async (req, res) => {
     await supabase.from("redeemlogs").insert({
       member_id: member.id,
       machine_id: machine_id,
-      points_redeemed: parseInt(amount)
+      points_redeemed: parseInt(amount),
+      status: "pending"  // รอการยืนยันจากตู้ HMI
     });
 
     // 4. ส่ง Push Message แจ้งเตือนลูกค้า
@@ -251,30 +310,6 @@ app.get("/liff/redeem-execute", async (req, res) => {
   }
 });
 
-
-// ฟังก์ชันส่งปุ่มเปิดกล้องแบบสวยๆ
-async function sendScanRequest(replyToken, amount) {
-  const flexData = {
-    type: "flex", altText: "ยืนยันการใช้แต้ม",
-    contents: {
-      type: "bubble",
-      body: {
-        type: "box", layout: "vertical", contents: [
-          { type: "text", text: "📷 พร้อมใช้งานแล้ว", weight: "bold", size: "lg" },
-          { type: "text", text: `กดปุ่มด้านล่างเพื่อสแกน QR ที่เครื่องเพื่อใช้ ${amount} แต้ม`, wrap: true, margin: "md" }
-        ]
-      },
-      footer: {
-        type: "box", layout: "vertical", contents: [
-          { type: "button", style: "primary", color: "#00b900", action: { type: "uri", label: "เปิดกล้องสแกน", uri: "https://line.me/R/nv/QRCodeReader" } }
-        ]
-      }
-    }
-  };
-  await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken, messages: [flexData] }, {
-    headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
-  });
-}
 // --- ฟังก์ชันช่วยส่งข้อความตอบกลับ (ต้องมีไว้ท้ายไฟล์นะ!) ---
 async function sendReply(replyToken, text) {
   try {
@@ -292,6 +327,7 @@ async function sendReply(replyToken, text) {
     console.error("❌ Reply Error:", e.response ? e.response.data : e.message);
   }
 }
+
 // --- ฟังก์ชันส่ง Flex Message สำหรับปุ่มเปิดกล้องสแกน ---
 async function sendScanRequest(replyToken, amount) {
   const flexData = {
@@ -354,6 +390,44 @@ async function sendReplyPush(to, text) {
     console.error("❌ Push Error:", e.response ? e.response.data : e.message);
   }
 }
+/* ====================================
+   จุดที่ 3: Auto Refund (ตัวที่ปรับปรุงแล้ว)
+==================================== */
+setInterval(async () => {
+  console.log("🕒 Checking for expired pending transactions...");
+  try {
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000).toISOString();
+    
+    // ดึงรายการที่ค้าง pending เกิน 1 นาที
+    const { data: expired } = await supabase
+      .from("redeemlogs")
+      .select("*, ninetyMember(line_user_id)")
+      .eq("status", 'pending')
+      .lt("created_at", oneMinuteAgo);
+
+    if (expired && expired.length > 0) {
+      for (let log of expired) {
+        // 1. ดึงแต้มปัจจุบันของลูกค้า
+        const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", log.member_id).single();
+        const currentBal = w ? w.point_balance : 0;
+        
+        // 2. คืนแต้มเข้า Wallet
+        await supabase.from("memberWallet").update({ point_balance: currentBal + log.points_redeemed }).eq("member_id", log.member_id);
+        
+        // 3. ปิดสถานะรายการเป็น refunded
+        await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", log.id);
+        
+        // 4. แจ้งลูกค้าผ่าน Push (ใช้ฟังก์ชัน sendReplyPush ที่เราทำไว้)
+        if (log.ninetyMember && log.ninetyMember.line_user_id) {
+          await sendReplyPush(log.ninetyMember.line_user_id, `🔔 ระบบคืนแต้มอัตโนมัติ ${log.points_redeemed} แต้ม\nเนื่องจากเครื่อง ${log.machine_id} ไม่ตอบสนองภายใน 1 นาทีค่ะ`);
+        }
+        console.log(`✅ Auto Refunded ${log.points_redeemed} pts to ${log.member_id}`);
+      }
+    }
+  } catch (err) {
+    console.error("❌ Auto Refund Error:", err.message);
+  }
+}, 30000); // รันทุก 30 วินาที
 
 
 // --- Start Server ---
