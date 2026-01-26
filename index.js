@@ -29,71 +29,78 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ""
 );
 
-/* =======================
-   LIFF CONSUME API
-======================= */
+/* ====================================
+   CONSUME POINT API (รองรับ Member & Wallet 💰)
+==================================== */
 app.get("/liff/consume", async (req, res) => {
+  console.log("🔵 Step 1: เริ่มกระบวนการตรวจสอบ");
   try {
     const { token, userId } = req.query;
-    console.log(`🟡 Processing User: ${userId}`);
+    if (!token || !userId) return res.status(400).send("ข้อมูลไม่ครบ");
 
-    if (!token || !userId) return res.status(400).send("Data Incomplete");
-
-    // 1. Lock QR
-    const { data: qr, error: qrErr } = await supabase
+    // 1. ตรวจสอบ Token ในตาราง qrPointToken
+    const { data: qrData, error: qrError } = await supabase
       .from("qrPointToken")
-      .update({ is_used: true, used_at: new Date(), used_by: userId })
+      .select("*")
       .eq("qr_token", token)
-      .eq("is_used", false)
-      .select()
-      .maybeSingle();
-
-    if (qrErr || !qr) return res.status(400).send("QR Invalid or Used");
-
-    // 2. Manage Member
-    const { data: member, error: memErr } = await supabase
-      .from("ninetyMember")
-      .upsert({ line_user_id: userId }, { onConflict: "line_user_id" })
-      .select("id")
       .single();
 
-    if (memErr) throw memErr;
+    if (qrError || !qrData) return res.status(404).send("ไม่พบรหัสคิวอาร์นี้");
+    if (qrData.is_used) return res.status(400).send("คิวอาร์นี้ถูกใช้ไปแล้ว");
 
-    // 3. Manage Wallet
-    await supabase
-      .from("memberWallet")
-      .upsert({ member_id: member.id }, { onConflict: "member_id" });
+    // 2. ค้นหา ID สมาชิกจากตาราง ninetyMember โดยใช้ line_user_id
+    const { data: memberData, error: memberError } = await supabase
+      .from("ninetyMember")
+      .select("id")
+      .eq("line_user_id", userId)
+      .single();
 
-    // 4. Add Point (RPC)
-    const { error: rpcErr } = await supabase.rpc("add_point", {
-      p_member_id: member.id,
-      p_point: qr.point_get
-    });
-
-    if (rpcErr) throw rpcErr;
-
-        // แก้ตรงส่วนส่ง Push Message ให้เป็น Try...Catch แยกต่างหาก
-    try {
-        if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-            await axios.post("https://api.line.me/v2/bot/message/push", {
-                to: userId,
-                messages: [{ type: "text", text: `ยินดีด้วย! คุณได้รับ ${qrData.point_get} แต้ม เรียบร้อยแล้วค่ะ` }]
-            }, {
-                headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
-            });
-        }
-    } catch (pushError) {
-        console.error("⚠️ ส่ง LINE ไม่สำเร็จแต่แต้มบันทึกแล้วนะ:", pushError.message);
-        // ไม่ต้อง throw error ออกไป เพื่อให้หน้าเว็บขึ้นว่า "สำเร็จ"
+    if (memberError || !memberData) {
+        return res.status(404).send("ไม่พบข้อมูลสมาชิก (กรุณาลงทะเบียนก่อน)");
     }
 
-    res.send(`บันทึก ${qrData.point_get} แต้มให้คุณเรียบร้อย!`);
+    const member_id = memberData.id;
 
+    // 3. ดึงแต้มปัจจุบันจาก memberWallet โดยใช้ member_id
+    const { data: walletData } = await supabase
+      .from("memberWallet")
+      .select("point_balance")
+      .eq("member_id", member_id)
+      .single();
 
-    res.status(200).send("Success");
+    const currentPoint = walletData ? (walletData.point_balance || 0) : 0;
+    const newTotal = currentPoint + qrData.point_get;
+
+    // 4. อัปเดตแต้มใน memberWallet (UPSERT)
+    const { error: walletUpdateError } = await supabase
+      .from("memberWallet")
+      .upsert({ 
+          member_id: member_id, 
+          point_balance: newTotal 
+      }, { onConflict: 'member_id' });
+
+    if (walletUpdateError) throw new Error("Wallet Update Failed: " + walletUpdateError.message);
+
+    // 5. มาร์คว่า QR ใช้แล้ว
+    await supabase.from("qrPointToken").update({ is_used: true }).eq("qr_token", token);
+
+    // 6. ส่ง LINE แจ้งเตือน (Try-Catch แยก)
+    try {
+      if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+        await axios.post("https://api.line.me/v2/bot/message/push", {
+          to: userId,
+          messages: [{ type: "text", text: `สะสมสำเร็จ! +${qrData.point_get} แต้ม (ยอดรวม: ${newTotal})` }]
+        }, {
+          headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+        });
+      }
+    } catch (e) { console.log("⚠️ LINE Push Failed"); }
+
+    res.send(`สะสมสำเร็จ! ยอดรวมตอนนี้: ${newTotal} แต้ม`);
+
   } catch (err) {
-    console.error("Error:", err.message);
-    res.status(500).send("Server Error");
+    console.error("💀 Error:", err.message);
+    res.status(500).send("เกิดข้อผิดพลาด: " + err.message);
   }
 });
 
