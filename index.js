@@ -161,87 +161,74 @@ app.post("/create-qr", async (req, res) => {
   }
 });
 /* ====================================
-   1. WEBHOOK: เช็กสิทธิ์ก่อนใช้แต้ม 🔍
+   1. WEBHOOK: ระบบจัดการข้อความและแอดมิน 🤖
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
   
   for (let event of events) {
     const userId = event.source.userId;
-    // 🔒 Admin IDs (เปรมและแอดมินคนที่ 2)
+    // 🔒 รายชื่อแอดมินที่มีสิทธิ์
     const ADMIN_IDS = ["U8d1d21082843a3aedb6cdd65f8779454", "Ud739afa32a9004fd318892feab424598"]; 
 
-    // ✨ 1. [ADMIN SYSTEM] ถ้าลูกค้าทักมา -> จำ ID และส่งแผงปุ่มให้แอดมิน
+    // ✨ [LOG SYSTEM] ถ้าลูกค้าทักมา -> ให้จำ ID ไว้ในตาราง last_chat เสมอ (แต่ยังไม่ส่งปุ่ม)
     if (event.type === "message" && !ADMIN_IDS.includes(userId)) {
       try {
         await supabase.from("last_chat").update({ last_user_id: userId }).eq("id", 1);
-        await sendAdminController(ADMIN_IDS[0], userId); 
-      } catch (e) { console.error("❌ Last Chat Error:", e.message); }
+      } catch (e) { console.error("❌ Last Chat Update Error:", e.message); }
     }
 
-    // ✨ 2. [POSTBACK] ส่วนรับค่าจากการกดปุ่ม 20 ปุ่มของแอดมิน
+    // ✨ [POSTBACK SYSTEM] ส่วนรับค่าจากการกดปุ่ม 15-20 ปุ่มของแอดมิน
     if (event.type === "postback") {
       const data = new URLSearchParams(event.postback.data);
       if (data.get("action") === "add" && ADMIN_IDS.includes(userId)) {
         const pts = parseInt(data.get("pts"));
         const customerUid = data.get("uid");
+        // ✅ เรียกใช้ฟังก์ชันเติมแต้ม (สีจะไม่จางแล้วค่ะ!)
         await addPointToUser(customerUid, pts, event.replyToken);
       }
-      continue; // จบเหตุการณ์ postback ให้ข้ามไปอันถัดไป
+      continue; 
     }
 
-    // ✨ 3. [MESSAGE] ส่วนจัดการข้อความตัวอักษร
+    // ✨ [MESSAGE SYSTEM] ส่วนจัดการข้อความตัวอักษร
     if (event.type === "message" && event.message.type === "text") {
       const userMsg = event.message.text.toUpperCase();
 
       try {
-        // ดึงข้อมูลสมาชิก (คนพิมพ์)
+        // --- ส่วนคำสั่งเฉพาะ ADMIN: พิมพ์ CLAIM เพื่อเรียกแผงปุ่ม ---
+        if (userMsg === "CLAIM" && ADMIN_IDS.includes(userId)) {
+          const { data: chat } = await supabase.from("last_chat").select("last_user_id").eq("id", 1).single();
+          if (chat?.last_user_id) {
+            await sendAdminController(userId, chat.last_user_id);
+          } else {
+            await sendReply(event.replyToken, "❌ ยังไม่มีลูกค้าทักมาเลยค่ะ");
+          }
+          continue;
+        }
+
+        // ดึงข้อมูลสมาชิก (สำหรับระบบ CHECK, REDEEM, REFUND)
         const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
         if (!member) continue; 
 
-        // --- คำสั่ง CHECK_POINT ---
+        // --- ระบบเดิมของลูกค้า (ห้ามหาย!) ---
         if (userMsg === "CHECK_POINT") {
           const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           await sendReply(event.replyToken, `🌟 คุณมีแต้มสะสม: ${wallet?.point_balance || 0} แต้ม`);
         } 
-        
-        // --- คำสั่ง REDEEM (เช็กแต้มพอก่อนสแกน) ---
         else if (userMsg.startsWith("REDEEM_")) {
           const amount = parseInt(userMsg.split("_")[1]);
           const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
-          
           if ((wallet?.point_balance || 0) < amount) {
             await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ (มี ${wallet.point_balance || 0} ใช้ ${amount})`);
           } else {
             await sendScanRequest(event.replyToken, amount);
           }
         }
-
-        // --- คำสั่ง REFUND (คืนแต้มเฉพาะที่ Pending) ---
         else if (userMsg === "REFUND") {
-          const { data: lastLog, error: logError } = await supabase
-            .from("redeemlogs")
-            .select("*")
-            .eq("member_id", member.id)
-            .eq("status", 'pending')
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .single();
-
-          if (logError || !lastLog) {
-            await sendReply(event.replyToken, "❌ ไม่พบรายการที่ค้างอยู่ค่ะ (รายการล่าสุดอาจจะสำเร็จไปแล้ว หรือยังไม่มีการใช้แต้ม)");
-          } else {
-            const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
-            const newTotal = (wallet?.point_balance || 0) + lastLog.points_redeemed;
-
-            await supabase.from("memberWallet").update({ point_balance: newTotal }).eq("member_id", member.id);
-            await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", lastLog.id);
-            
-            await sendReply(event.replyToken, `💰 ระบบคืนแต้มให้แล้วค่ะ!\n+ คืนให้: ${lastLog.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม`);
-          }
+          // Logic การคืนแต้ม Pending (ของเดิมเปรม)
+          await handleRefund(member.id, event.replyToken);
         }
-
-        // --- คำสั่งแอดมินแบบพิมพ์ (ถ้าเปรมถนัดพิมพ์มากกว่ากดปุ่ม) ---
+        // --- Admin เพิ่มแต้มแบบพิมพ์ประโยคธรรมชาติ ---
         else if (userMsg.includes("จะเพิ่มแต้มให้") && ADMIN_IDS.includes(userId)) {
           const match = userMsg.match(/จะเพิ่มแต้มให้\s*(\d+)/);
           const pts = match ? parseInt(match[1]) : 0;
@@ -256,6 +243,46 @@ app.post("/webhook", async (req, res) => {
   }
   res.sendStatus(200);
 });
+
+/* ====================================
+   2. ฟังก์ชันเสริม (วางไว้นอก app.post ทั้งหมด)
+==================================== */
+
+// ✅ ฟังก์ชันเติมแต้ม (ที่เป็นสีจางๆ ตอนนี้จะกลับมาเข้มแล้วค่ะ)
+async function addPointToUser(targetUid, pts, replyToken) {
+  try {
+    const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).single();
+    if (!member) return;
+
+    const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
+    const newTotal = (wallet?.point_balance || 0) + pts;
+
+    await supabase.from("memberWallet").upsert({ 
+      member_id: member.id, 
+      point_balance: newTotal 
+    }, { onConflict: 'member_id' });
+
+    if (replyToken) await sendReply(replyToken, `✅ เติมเรียบร้อย! +${pts} แต้ม (รวม: ${newTotal})`);
+    await sendReplyPush(targetUid, `🎁 แอดมินเพิ่มแต้มพิเศษให้ ${pts} แต้มนะคะ! ยอดรวม: ${newTotal} แต้มค่ะ ✨`);
+  } catch (e) { console.error("AddPoint Error:", e.message); }
+}
+
+// ✅ ฟังก์ชันจัดการคืนแต้ม (Refund)
+async function handleRefund(memberId, replyToken) {
+  const { data: lastLog, error } = await supabase.from("redeemlogs").select("*")
+    .eq("member_id", memberId).eq("status", 'pending').order("created_at", { ascending: false }).limit(1).single();
+
+  if (error || !lastLog) {
+    return await sendReply(replyToken, "❌ ไม่พบรายการที่ค้างอยู่ค่ะ");
+  }
+
+  const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", memberId).single();
+  const newTotal = (wallet?.point_balance || 0) + lastLog.points_redeemed;
+
+  await supabase.from("memberWallet").update({ point_balance: newTotal }).eq("member_id", memberId);
+  await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", lastLog.id);
+  await sendReply(replyToken, `💰 ระบบคืนแต้มให้แล้วค่ะ! (+${lastLog.points_redeemed} แต้ม)`);
+}
 
 
 /* ====================================
@@ -443,7 +470,7 @@ setInterval(async () => {
 
 // --- ฟังก์ชันส่งแผงควบคุมแอดมิน ---
 async function sendAdminController(adminId, targetCustomerId) {
-  const points = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200, 250, 300, 350, 400, 450, 500, 1000, 2000];
+  const points = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100];
   
   // สร้างปุ่มจาก Array ตัวเลข
   const buttons = points.map(pt => ({
@@ -457,14 +484,14 @@ async function sendAdminController(adminId, targetCustomerId) {
     }
   }));
 
-  // แบ่งแถว แถวละ 4 ปุ่ม
+  // แบ่งแถว แถวละ 5 ปุ่ม
   const rows = [];
-  for (let i = 0; i < buttons.length; i += 4) {
+  for (let i = 0; i < buttons.length; i += 5) {
     rows.push({
       type: "box",
       layout: "horizontal",
       spacing: "sm",
-      contents: buttons.slice(i, i + 4)
+      contents: buttons.slice(i, i + 5)
     });
   }
 
