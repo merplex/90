@@ -12,24 +12,38 @@
         .balance-box span { font-size: 24px; font-weight: bold; }
         .grid-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .btn-price { background: #fff; border: 2px solid #00b900; color: #00b900; border-radius: 15px; padding: 15px 5px; font-size: 18px; font-weight: bold; cursor: pointer; }
-        .btn-price:active { background: #00b900; color: white; }
+        /* ปรับความสูงปุ่มลงนิดนึงเพื่อให้พอดี 4 แถว */
+        .btn-price { 
+            background: #fff; 
+            border: 2px solid #00b900; 
+            color: #00b900; 
+            border-radius: 12px; /* มนน้อยลงนิดนึงจะดูเท่ขึ้น */
+            padding: 12px 2px;   /* ลด padding บน-ล่าง */
+            font-size: 18px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+        }
     </style>
 </head>
 <body>
 <div class="card">
     <h3>Ninety Wash</h3>
     <div class="balance-box">ยอดแต้ม: <span id="userPoints">...</span></div>
-    <div class="grid-container">
-        <button class="btn-price" onclick="selectPrice(10)">10</button>
-        <button class="btn-price" onclick="selectPrice(20)">20</button>
-        <button class="btn-price" onclick="selectPrice(30)">30</button>
-        <button class="btn-price" onclick="selectPrice(40)">40</button>
-        <button class="btn-price" onclick="selectPrice(50)">50</button>
-        <button class="btn-price" onclick="selectPrice(60)">60</button>
-        <button class="btn-price" onclick="selectPrice(70)">70</button>
-        <button class="btn-price" onclick="selectPrice(80)">80</button>
-        <button class="btn-price" onclick="selectPrice(90)">90</button>
-    </div>
+        <div class="grid-container">
+            <button class="btn-price" onclick="selectPrice(10)">10</button>
+            <button class="btn-price" onclick="selectPrice(20)">20</button>
+            <button class="btn-price" onclick="selectPrice(30)">30</button>
+            <button class="btn-price" onclick="selectPrice(40)">40</button>
+            <button class="btn-price" onclick="selectPrice(50)">50</button>
+            <button class="btn-price" onclick="selectPrice(60)">60</button>
+            <button class="btn-price" onclick="selectPrice(70)">70</button>
+            <button class="btn-price" onclick="selectPrice(80)">80</button>
+            <button class="btn-price" onclick="selectPrice(90)">90</button>
+            <button class="btn-price" onclick="selectPrice(100)">100</button>
+            <button class="btn-price" onclick="selectPrice(110)">110</button>
+            <button class="btn-price" onclick="selectPrice(120)">120</button>
+        </div>
 </div>
 <script>
     let userId = "";
