@@ -215,6 +215,45 @@ setInterval(async () => {
   } catch (err) { console.error(err.message); }
 }, 30000);
 
+/* ====================================
+   5. MACHINE CONFIRMATION (ตู้กดยืนยัน) ⚙️
+==================================== */
+app.get("/api/machine-confirm", async (req, res) => {
+  try {
+    const { machine_id } = req.query;
+
+    if (!machine_id) return res.status(400).send("MISSING_MACHINE_ID");
+
+    // 1. ค้นหา Log รายการล่าสุดที่ยังเป็น 'pending' ของเครื่องนี้
+    const { data: log, error } = await supabase
+      .from("redeemlogs")
+      .select("*")
+      .eq("machine_id", machine_id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !log) {
+      console.log(`❌ No pending log found for machine: ${machine_id}`);
+      return res.status(404).send("NO_PENDING_TRANSACTION");
+    }
+
+    // 2. อัปเดตสถานะเป็น 'success' เพื่อหยุดระบบ Auto Refund
+    await supabase
+      .from("redeemlogs")
+      .update({ status: "success" })
+      .eq("id", log.id);
+
+    console.log(`✅ Transaction ${log.id} confirmed for machine ${machine_id}`);
+    res.send("CONFIRM_SUCCESS");
+
+  } catch (err) {
+    console.error("Confirmation Error:", err.message);
+    res.status(500).send("INTERNAL_ERROR");
+  }
+});
+
 // API อื่นๆ
 app.post("/create-qr", async (req, res) => {
   const { amount, machine_id } = req.body;
