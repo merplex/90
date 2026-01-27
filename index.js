@@ -48,6 +48,17 @@ app.get("/liff/consume", async (req, res) => {
     res.send(successMsg);
   } catch (err) { res.status(500).send(err.message); }
 });
+// รับแต้มจาก liff.html ที่มีปุ่มกดเลือกแต้มแล้ว ค่าสแกนเพื่อรับ หมายเลขเครื่องจาก qr ของ hmi
+// --- เพิ่ม Endpoint นี้ใน index.js (วางไว้ก่อน app.listen) ---
+app.get("/api/get-user-points", async (req, res) => {
+    const { userId } = req.query;
+    try {
+        const { data: m } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
+        if (!m) return res.json({ points: 0 });
+        const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", m.id).single();
+        res.json({ points: w?.point_balance || 0 });
+    } catch (e) { res.status(500).send(e.message); }
+});
 
 /* ====================================
    2. REDEEM API (หักแต้มหน้าตู้) 💸

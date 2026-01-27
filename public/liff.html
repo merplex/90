@@ -1,78 +1,61 @@
 <!DOCTYPE html>
-<html>
+<html lang="th">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>สะสมแต้ม</title>
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <style>
-    body { font-family: sans-serif; text-align: center; padding: 40px 20px; background-color: #f4f7f6; }
-    .status-card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    .btn { background: #00b900; color: white; border: none; padding: 12px 25px; border-radius: 8px; display: none; margin: 20px auto; cursor: pointer; }
-    .debug-info { font-size: 11px; color: #666; margin-top: 20px; word-break: break-all; text-align: left; background: #eee; padding: 15px; border-radius: 8px; border: 1px solid #ccc; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>เลือกราคา - NINETY Point</title>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 20px; }
+        .card { background: white; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; padding: 25px; text-align: center; }
+        .balance-box { background: #00b900; color: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
+        .balance-box span { font-size: 24px; font-weight: bold; }
+        .grid-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .btn-price { background: #fff; border: 2px solid #00b900; color: #00b900; border-radius: 15px; padding: 15px 5px; font-size: 18px; font-weight: bold; cursor: pointer; }
+        .btn-price:active { background: #00b900; color: white; }
+    </style>
 </head>
 <body>
-  <div class="status-card">
-    <div id="status">
-      <h3>🌀 กำลังเชื่อมต่อระบบ...</h3>
-      <p>โปรดรอสักครู่ค่ะ</p>
+<div class="card">
+    <h3>Ninety Laundry</h3>
+    <div class="balance-box">ยอดแต้ม: <span id="userPoints">...</span></div>
+    <div class="grid-container">
+        <button class="btn-price" onclick="selectPrice(10)">10</button>
+        <button class="btn-price" onclick="selectPrice(20)">20</button>
+        <button class="btn-price" onclick="selectPrice(30)">30</button>
+        <button class="btn-price" onclick="selectPrice(40)">40</button>
+        <button class="btn-price" onclick="selectPrice(50)">50</button>
+        <button class="btn-price" onclick="selectPrice(60)">60</button>
+        <button class="btn-price" onclick="selectPrice(70)">70</button>
+        <button class="btn-price" onclick="selectPrice(80)">80</button>
+        <button class="btn-price" onclick="selectPrice(90)">90</button>
     </div>
-    <button id="closeBtn" class="btn" onclick="liff.closeWindow()">ปิดหน้าต่าง</button>
-  </div>
-
-  <div id="debug" class="debug-info">📍 Debug Status: รอการเชื่อมต่อ...</div>
-
-  <script>
-    const statusDiv = document.getElementById("status");
-    const debugDiv = document.getElementById("debug");
-
+</div>
+<script>
+    let userId = "";
     async function main() {
-      try {
-        debugDiv.innerHTML = "📍 Debug: กำลังเริ่ม liff.init...";
-        await liff.init({ liffId: "2008944819-hKnqP5yy" });
-        
-        if (!liff.isLoggedIn()) { 
-          debugDiv.innerHTML = "📍 Debug: ยังไม่ได้ Login กำลังไปหน้า Login...";
-          liff.login({ redirectUri: window.location.href }); 
-          return; 
+        await liff.init({ liffId: "2008944819-N4ozrStq" }); //
+        if (!liff.isLoggedIn()) { liff.login(); } 
+        else {
+            const profile = await liff.getProfile();
+            userId = profile.userId;
+            const res = await fetch(`/api/get-user-points?userId=${userId}`);
+            const data = await res.json();
+            document.getElementById('userPoints').innerText = data.points;
         }
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get("token");
-        
-        debugDiv.innerHTML = `📍 Debug: Login แล้ว | Token = ${token ? '✅ พบ' : '❌ ไม่พบ'}`;
-
-        const profile = await liff.getProfile();
-        statusDiv.innerHTML = `<h3>สวัสดีคุณ ${profile.displayName}</h3><p>กำลังบันทึกแต้ม...</p>`;
-
-        // ✨ 1. สร้าง URL แบบชัวร์ที่สุด (มีแค่บรรทัดนี้บรรทัดเดียวพอค่ะ)
-        const targetUrl = `${window.location.origin}/liff/consume?token=${token}&userId=${profile.userId}`;
-
-        // 2. แสดงผล Debug (เพื่อให้เราเห็นว่ามันส่งไปที่ไหน)
-        debugDiv.innerHTML += `<br>🚀 ส่งข้อมูลไปที่: ${targetUrl}`;
-
-        // 3. เริ่มการส่งข้อมูล (Fetch)
-        const response = await fetch(targetUrl);
-        const resultText = await response.text();
-
-        debugDiv.innerHTML += `<br>📡 ตอบกลับจาก Server: ${response.status} ${response.statusText}`;
-
-        if (response.ok) {
-          statusDiv.innerHTML = `<h3>✅ สำเร็จ!</h3><p>${resultText}</p>`;
-          setTimeout(() => liff.closeWindow(), 4000);
-        } else {
-          statusDiv.innerHTML = `<h3>❌ บันทึกไม่สำเร็จ</h3><p>${resultText}</p>`;
-          document.getElementById("closeBtn").style.display = "block";
-        }
-
-      } catch (err) {
-        statusDiv.innerHTML = `<h3>❌ เชื่อมต่อล้มเหลว</h3><p style="color:red;">สาเหตุ: ${err.message}</p>`;
-        debugDiv.innerHTML += `<br>🔴 ERROR สดๆ: ${err.stack}`;
-        document.getElementById("closeBtn").style.display = "block";
-      }
+    }
+    async function selectPrice(amount) {
+        try {
+            const result = await liff.scanCodeV2(); // เปิดกล้องสแกน QR หน้าตู้
+            const machineId = result.value;
+            if (machineId) {
+                const response = await fetch(`/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
+                const text = await response.text();
+                if (text.includes("SUCCESS")) { liff.closeWindow(); }
+            }
+        } catch (err) { alert("สแกนยกเลิก"); }
     }
     main();
-  </script>
+</script>
 </body>
 </html>
