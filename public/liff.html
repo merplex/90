@@ -46,7 +46,7 @@
     }
     async function selectPrice(amount) {
         try {
-            const result = await liff.scanCodeV2(); // เปิดกล้องสแกน QR หน้าตู้
+            const result = await liff.scanCode(); // เปิดกล้องสแกน QR หน้าตู้
             const machineId = result.value;
             if (machineId) {
                 const response = await fetch(`/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
