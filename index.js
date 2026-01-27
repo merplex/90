@@ -1,4 +1,4 @@
-// update for railway v3 - Professional UI/UX Version 🌟
+// update for railway v4 - Pro UI & Flexible Request Version 🔐🌟
 require("dotenv").config();
 const crypto = require("crypto");
 const express = require("express");
@@ -17,7 +17,7 @@ const supabase = createClient(
 );
 
 /* ====================================
-   1. CONSUME POINT API (สะสมแต้มจาก QR) 💰
+   1. CONSUME POINT API (สะสมแต้ม) 💰
 ==================================== */
 app.get("/liff/consume", async (req, res) => {
   try {
@@ -28,7 +28,7 @@ app.get("/liff/consume", async (req, res) => {
     if (qrError || !qrData) return res.status(404).send("ไม่พบรหัสคิวอาร์นี้");
     if (qrData.is_used) return res.status(400).send("คิวอาร์นี้ถูกใช้ไปแล้ว");
 
-    // ล็อคคิวอาร์ทันที
+    // ล็อคคิวอาร์พร้อมลงชื่อคนใช้ทันที
     await supabase.from("qrPointToken").update({ 
       is_used: true, used_by: userId, used_at: new Date().toISOString() 
     }).eq("qr_token", token);
@@ -43,12 +43,8 @@ app.get("/liff/consume", async (req, res) => {
     const newTotal = (wallet?.point_balance || 0) + qrData.point_get;
     await supabase.from("memberWallet").upsert({ member_id: member.id, point_balance: newTotal }, { onConflict: 'member_id' });
 
-    // ✨ ข้อความสะสมแต้ม (สวยโปร)
     const successMsg = `สะสมสำเร็จ! +${qrData.point_get} แต้ม (ยอดรวม: ${newTotal})`;
-    try {
-      await sendReplyPush(userId, successMsg);
-    } catch (e) { console.log("⚠️ LINE Push Failed"); }
-
+    await sendReplyPush(userId, successMsg);
     res.send(successMsg);
   } catch (err) { res.status(500).send(err.message); }
 });
@@ -68,15 +64,14 @@ app.get("/liff/redeem-execute", async (req, res) => {
     await supabase.from("memberWallet").update({ point_balance: newBalance }).eq("member_id", m.id);
     await supabase.from("redeemlogs").insert({ member_id: m.id, machine_id, points_redeemed: parseInt(amount), status: "pending" });
 
-    // ✨ ข้อความใช้แต้ม (แบ่งบรรทัดสวยงาม)
+    // ✅ UI ใช้แต้มสำเร็จ (แบ่งบรรทัดตามบรีฟ)
     await sendReplyPush(userId, `✅ ใช้แต้มสำเร็จ!\nหักไป: ${amount} แต้ม\nเครื่อง: ${machine_id}\nคงเหลือ: ${newBalance} แต้ม`);
-    
     res.send(`SUCCESS: MACHINE_${machine_id}_START`);
   } catch (err) { res.status(500).send(err.message); }
 });
 
 /* ====================================
-   3. WEBHOOK (ระบบจัดการแชท) 🤖
+   3. WEBHOOK (ระบบจัดการแชท & แอดมิน) 🤖
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -89,21 +84,34 @@ app.post("/webhook", async (req, res) => {
       const userMsg = rawMsg.toUpperCase(); 
 
       try {
-        if (rawMsg.match(/^\d+\s*แต้ม$/)) { 
-          const pts = parseInt(rawMsg.replace("แต้ม", "").trim());
+        // ✨ Regex ใหม่: ดึงตัวเลขจากคำว่า "แต้ม" ได้จากทุกประโยค
+        const pointMatch = rawMsg.match(/(\d+)\s*แต้ม/);
+
+        // --- 🟢 ระบบคุยธรรมชาติ (ขอแต้ม) ---
+        if (pointMatch && !ADMIN_IDS.includes(userId)) { 
+          const pts = parseInt(pointMatch[1]);
           if (pts > 0) {
-            await supabase.from("point_requests").delete().eq("line_user_id", userId);
-            await supabase.from("point_requests").insert({ line_user_id: userId, points: pts, request_at: new Date().toISOString() });
+            // บันทึกทุกครั้ง ไม่ต้องลบของเก่า ป้องกันบั๊กตามที่เปรมบอกค่ะ
+            await supabase.from("point_requests").insert({ 
+              line_user_id: userId, points: pts, request_at: new Date().toISOString() 
+            });
+            console.log(`📝 บันทึกคำขอใหม่: User ${userId} ขอ ${pts} แต้ม`);
           }
         }
+        // --- 🅰️ ส่วนแอดมินอนุมัติ (OK / โอเค) ---
         else if ((userMsg === "OK" || userMsg === "โอเค") && ADMIN_IDS.includes(userId)) {
           const oneMinAgo = new Date(Date.now() - 60000).toISOString();
-          const { data: req } = await supabase.from("point_requests").select("*").gt("request_at", oneMinAgo).order("request_at", { ascending: false }).limit(1).single();
-          if (req) {
-            await addPointToUser(req.line_user_id, req.points, event.replyToken);
-            await supabase.from("point_requests").delete().eq("id", req.id);
+          const { data: reqRecord } = await supabase.from("point_requests")
+            .select("*").gt("request_at", oneMinAgo).order("request_at", { ascending: false }).limit(1).single();
+
+          if (reqRecord) {
+            await addPointToUser(reqRecord.line_user_id, reqRecord.points, event.replyToken);
+            await supabase.from("point_requests").delete().eq("id", reqRecord.id);
+          } else {
+            await sendReply(event.replyToken, `❌ ไม่พบรายการที่ค้างอยู่ค่ะ\n(รายการล่าสุดอาจจะทำงานสำเร็จไปแล้ว หรือยังไม่มีการหักแต้มเข้ามา)`);
           }
         }
+        // --- 🔵 ระบบเดิม ---
         else {
             const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
             if (member) {
@@ -129,10 +137,10 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ====================================
-   4. HELPER FUNCTIONS (ฟังก์ชันช่วยงาน) 🛠️
+   4. HELPER FUNCTIONS (ฟังก์ชันเสริมความโปร) 🛠️
 ==================================== */
 
-// ✅ ฟังก์ชันเติมแต้ม Manual (แอดมิน OK)
+// ✅ อนุมัติเติมแต้ม (Admin OK)
 async function addPointToUser(targetUid, pts, replyToken) {
   try {
     const { data: m } = await supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).single();
@@ -141,18 +149,17 @@ async function addPointToUser(targetUid, pts, replyToken) {
     const newTotal = (w?.point_balance || 0) + pts;
     await supabase.from("memberWallet").upsert({ member_id: m.id, point_balance: newTotal }, { onConflict: 'member_id' });
     
-    // ✨ ข้อความแอดมิน OK (สวยโปร)
+    // ✅ UI อนุมัติสำเร็จ
     const adminMsg = `✅ อนุมัติเติมแต้มเรียบร้อยค่ะ!\n\n+ เติมให้: ${pts} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม`;
     if (replyToken) await sendReply(replyToken, adminMsg);
     await sendReplyPush(targetUid, `🎊 แอดมินเติมแต้มพิเศษให้ ${pts} แต้ม\nยอดรวมของคุณคือ ${newTotal} แต้มค่ะ ✨`);
   } catch (e) { console.error(e); }
 }
 
-// ✅ ฟังก์ชันจัดการ Refund (Manual)
+// ✅ คืนแต้ม (Manual Refund)
 async function handleRefund(memberId, replyToken) {
     const { data: log } = await supabase.from("redeemlogs").select("*").eq("member_id", memberId).eq("status", 'pending').order("created_at", { ascending: false }).limit(1).single();
     
-    // ✨ กรณีไม่พบรายการค้าง
     if (!log) return await sendReply(replyToken, `❌ ไม่พบรายการที่ค้างอยู่ค่ะ\n(รายการล่าสุดอาจจะทำงานสำเร็จไปแล้ว หรือยังไม่มีการหักแต้มเข้ามา)`);
 
     const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", memberId).single();
@@ -161,7 +168,7 @@ async function handleRefund(memberId, replyToken) {
     await supabase.from("memberWallet").update({ point_balance: newTotal }).eq("member_id", memberId);
     await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", log.id);
 
-    // ✨ ข้อความ Refund สำเร็จ (สวยโปร)
+    // ✅ UI คืนแต้มสำเร็จ
     const successRefund = `💰 ระบบคืนแต้มให้แล้วค่ะ!\n\n+ คืนให้: ${log.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTotal} แต้ม\n(รายการเครื่อง ${log.machine_id} ถูกยกเลิกเรียบร้อย)`;
     await sendReply(replyToken, successRefund);
 }
@@ -178,9 +185,7 @@ async function sendScanRequest(replyToken, amount) {
   await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken, messages: [flex] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }});
 }
 
-/* ====================================
-   6. AUTO REFUND (ทำงานทุก 30 วินาที) 🕒
-==================================== */
+// ✅ Auto Refund (ทำงานทุก 30 วินาที)
 setInterval(async () => {
   try {
     const oneMinAgo = new Date(Date.now() - 60000).toISOString();
@@ -191,8 +196,6 @@ setInterval(async () => {
         const newTot = (w?.point_balance || 0) + log.points_redeemed;
         await supabase.from("memberWallet").update({ point_balance: newTot }).eq("member_id", log.member_id);
         await supabase.from("redeemlogs").update({ status: 'refunded', is_refunded: true }).eq("id", log.id);
-        
-        // ✨ ข้อความ Auto Refund (สวยโปร)
         if (log.ninetyMember?.line_user_id) {
             await sendReplyPush(log.ninetyMember.line_user_id, `💰 คืนแต้มอัตโนมัติสำเร็จ!\n\n+ คืนให้: ${log.points_redeemed} แต้ม\n🌟 ยอดรวมปัจจุบัน: ${newTot} แต้ม\n(เนื่องจากเครื่อง ${log.machine_id} ไม่ตอบสนอง)`);
         }
@@ -201,7 +204,7 @@ setInterval(async () => {
   } catch (err) { console.error(err.message); }
 }, 30000);
 
-// API อื่นๆ และ Start Server
+// API อื่นๆ
 app.post("/create-qr", async (req, res) => {
   const { amount, machine_id } = req.body;
   const token = crypto.randomUUID();
