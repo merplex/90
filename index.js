@@ -151,6 +151,18 @@ app.post("/webhook", async (req, res) => {
                     return await sendReply(event.replyToken, "❌ ตั้งค่าไม่สำเร็จ: " + e.message);
                 }
             }
+            // --- 🔍 คำสั่งเช็ก ID เมนูที่กำลังแสดงผลบนหน้าจอตัวเองตอนนี้ ---
+            else if (userMsg === "CHECK_MY_ID") {
+                try {
+                    const res = await axios.get(`https://api.line.me/v2/bot/user/${userId}/richmenu`, {
+                        headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+                    });
+                    return await sendReply(event.replyToken, `🆔 เมนูที่เปรมใช้อยู่ตอนนี้คือ:\n${res.data.richMenuId}`);
+                } catch (e) {
+                    return await sendReply(event.replyToken, "❌ ไม่พบเมนูที่ผูกกับตัวบุคคล (อาจใช้เมนู Default อยู่)");
+                }
+            }
+
             // 3. จัดการข้อมูลลูกค้า
             else if (userMsg.startsWith("USAGE ")) {
                 return await getCustomerReport(rawMsg.split(" ")[1], event.replyToken, userId);
