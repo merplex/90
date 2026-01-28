@@ -15,21 +15,21 @@ let adminWaitList = new Set();
    1. API SYSTEM
 ============================================================ */
 
-// API สร้าง QR (บันทึกครบถ้วน)
+// API สร้าง QR
 app.post("/create-qr", async (req, res) => {
     try {
         const { amount, machine_id } = req.body;
         const point_get = Math.floor(amount / 10); 
         const token = crypto.randomUUID();
 
-        // บันทึก created_at อัตโนมัติโดย Supabase หรือเราส่งไปเองเพื่อให้ชัวร์เรื่องการเรียงลำดับ
         const { error } = await supabase.from("qrPointToken").insert({
             qr_token: token,
             point_get: point_get,
             machine_id: machine_id,
             scan_amount: amount, 
             is_used: false,
-            // create_at: new Date().toISOString() // ถ้าตารางมี create_at ให้เปิดบรรทัดนี้ครับ
+            // เพิ่ม create_at เพื่อให้มีเวลาอ้างอิงตอนสร้าง
+             create_at: new Date().toISOString() 
         });
 
         if (error) throw error;
@@ -52,42 +52,34 @@ app.get("/api/get-user-points", async (req, res) => {
     } catch (e) { res.status(500).json({ points: 0 }); }
 });
 
-// API สะสมแต้ม (Consume)
+// API สะสมแต้ม
 app.get("/liff/consume", async (req, res) => {
   try {
     const { token, userId } = req.query;
-    // ดึงข้อมูล QR
     const { data: qrData } = await supabase.from("qrPointToken").select("*").eq("qr_token", token).maybeSingle();
     
     if (!qrData) return res.status(400).send("QR Not Found");
     if (qrData.is_used) return res.status(400).send("QR Used Already");
     
-    // อัปเดต QR ว่าถูกใช้แล้ว (สำคัญ: บันทึก used_at ให้แม่นยำ)
     await supabase.from("qrPointToken").update({ 
         is_used: true, 
         used_by: userId, 
         used_at: new Date().toISOString() 
     }).eq("qr_token", token);
     
-    // จัดการสมาชิก (Upsert ให้ชัวร์ว่ามีแน่นอน)
     let { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).maybeSingle();
     if (!member) { 
-        // ถ้าไม่มี สร้างใหม่เลย
         const { data: newMember } = await supabase.from("ninetyMember").insert({ line_user_id: userId }).select().single();
         member = newMember;
     }
     
-    // อัปเดตแต้ม
     const { data: wallet } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).maybeSingle();
     const newTotal = (wallet?.point_balance || 0) + qrData.point_get;
     await supabase.from("memberWallet").upsert({ member_id: member.id, point_balance: newTotal }, { onConflict: 'member_id' });
     
     await sendReplyPush(userId, `✨ สะสมสำเร็จ! +${qrData.point_get} แต้ม (รวม: ${newTotal})`);
     res.send("SUCCESS");
-  } catch (err) { 
-      console.error("Consume Error:", err);
-      res.status(500).send(err.message); 
-  }
+  } catch (err) { res.status(500).send(err.message); }
 });
 
 // API แลกแต้ม
@@ -111,7 +103,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
 });
 
 /* ============================================================
-   2. WEBHOOK & LOGIC (แก้เงื่อนไขการขอแต้ม)
+   2. WEBHOOK & LOGIC (แก้ Regex ขอแต้ม)
 ============================================================ */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -147,29 +139,32 @@ app.post("/webhook", async (req, res) => {
       }
       
       // --- User Flow ---
-      
-      // 1. เช็กว่าเป็นตัวเลขหรือไม่ (สำหรับการขอแต้ม)
-      // 🔥 ย้ายมาเช็กก่อนเลย ไม่ต้องรอ member
-      if (!isNaN(rawMsg) && parseInt(rawMsg) > 0) {
-          const points = parseInt(rawMsg);
+
+      // 🔥 1. ดักจับตัวเลข (รองรับ "100", "100แต้ม", "100 แต้ม")
+      // Regex นี้จะหาตัวเลขที่อยู่ต้นประโยค
+      const pointMatch = rawMsg.match(/^(\d+)(\s*แต้ม)?$/);
+
+      if (pointMatch) {
+          const points = parseInt(pointMatch[1]); // เอาแค่ตัวเลข (กลุ่มที่ 1)
           
-          // บันทึกลง point_requests ทันที (ไม่ต้องเช็ก Member ก่อน เอาให้เข้า DB ไว้ก่อน)
-          const { error } = await supabase.from("point_requests").insert({
-              line_user_id: userId,
-              points: points,
-              request_at: new Date().toISOString()
-          });
-          
-          if (!error) {
-              await sendReply(event.replyToken, `📝 ได้รับคำขอ ${points} แต้มแล้วค่ะ\nรอแอดมินอนุมัตินะคะ ✨`);
-          } else {
-              console.error("Insert Request Error:", error);
-              await sendReply(event.replyToken, `❌ ระบบบันทึกคำขอไม่ได้: ${error.message}`);
+          if (points > 0) {
+              const { error } = await supabase.from("point_requests").insert({
+                  line_user_id: userId,
+                  points: points,
+                  request_at: new Date().toISOString()
+              });
+              
+              if (!error) {
+                  await sendReply(event.replyToken, `📝 รับทราบค่ะ! ส่งคำขอ ${points} แต้ม ให้แอดมินแล้ว\nกรุณารอการอนุมัตินะคะ ✨`);
+              } else {
+                  console.error("Insert Request Error:", error);
+                  await sendReply(event.replyToken, `❌ ขออภัย ระบบบันทึกไม่สำเร็จ: ${error.message}`);
+              }
+              return; // จบการทำงาน
           }
-          return; // จบการทำงานรอบนี้
       }
 
-      // 2. เช็กแต้ม (ต้องเป็น Member ถึงจะเช็กได้)
+      // 2. เช็กแต้ม
       if (userMsg === "CHECK_POINT") {
           const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).maybeSingle();
           if (member) {
@@ -186,7 +181,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ============================================================
-   3. HELPERS & REPORT (แก้การเรียงลำดับ)
+   3. HELPERS & REPORT (แก้ Filter)
 ============================================================ */
 async function isAdmin(uid) { 
     if(!uid) return false;
@@ -214,7 +209,6 @@ async function approveSpecificPoint(rid, rt) {
   const { data: req } = await supabase.from("point_requests").select("*").eq("id", rid).maybeSingle();
   if (!req) return await sendReply(rt, "❌ รายการนี้อาจถูกอนุมัติไปแล้ว");
   
-  // สมัครสมาชิกให้อัตโนมัติถ้ายังไม่มี
   let { data: m } = await supabase.from("ninetyMember").select("id").eq("line_user_id", req.line_user_id).maybeSingle();
   if (!m) { m = (await supabase.from("ninetyMember").insert({ line_user_id: req.line_user_id }).select().single()).data; }
 
@@ -228,17 +222,17 @@ async function approveSpecificPoint(rid, rt) {
   await sendReplyPush(req.line_user_id, `🎊 แอดมินเติมแต้มให้ ${req.points} แต้มแล้วค่ะ (ยอดรวม: ${newTotal})`);
 }
 
-// ✅ แก้ไข REPORT ให้เรียงข้อมูลแม่นยำขึ้น
+// ✅ แก้ไข REPORT: ใช้ .neq('used_at', null) เพื่อกรองค่าว่างออกจริงๆ
 async function listCombinedReport(replyToken) {
   try {
     const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
     
-    // 🔥 แก้ตรงนี้: เอา used_at ที่ไม่เป็น null และเรียงจากล่าสุด
+    // 🔥 แก้ตรงนี้: กรองเข้มข้น
     const { data: earns } = await supabase.from("qrPointToken")
         .select("*")
         .eq("is_used", true)
-        .not("used_at", "is", null) 
-        .order("used_at", { ascending: false }) // เรียงจากเวลาสแกนล่าสุด
+        .neq("used_at", null) // ใช้ neq (Not Equal) กับ null แทน
+        .order("used_at", { ascending: false })
         .limit(5);
         
     const { data: redeems } = await supabase.from("redeemlogs").select("*").limit(5).order("created_at", { ascending: false });
@@ -250,8 +244,7 @@ async function listCombinedReport(replyToken) {
       body: { type: "box", layout: "vertical", spacing: "md", contents: [
         { type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" },
         
-        // PENDING
-        { type: "text", text: "🔔 PENDING (งานค้าง)", weight: "bold", size: "xs", color: "#ff4b4b" },
+        { type: "text", text: "🔔 PENDING", weight: "bold", size: "xs", color: "#ff4b4b" },
         { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({
           type: "box", layout: "horizontal", margin: "xs", contents: [
             { type: "text", text: `+${r.points}p [..${r.line_user_id.slice(-5)}]`, size: "xxs", gravity: "center", flex: 3 },
@@ -261,16 +254,14 @@ async function listCombinedReport(replyToken) {
         
         { type: "separator" },
         
-        // RECENT EARNS
-        { type: "text", text: "📥 RECENT EARNS (ล่าสุด)", weight: "bold", size: "xs", color: "#00b900" },
+        { type: "text", text: "📥 RECENT EARNS", weight: "bold", size: "xs", color: "#00b900" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({
           type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by ? e.used_by.substring(0,5) : '-'} | +${e.point_get}p (${e.scan_amount || 0}฿) | ${formatTime(e.used_at)}`, size: "xxs", color: "#333333"
         })) : [{ type: "text", text: "-", size: "xxs" }] },
         
         { type: "separator" },
         
-        // RECENT REDEEMS
-        { type: "text", text: "📤 RECENT REDEEMS (ล่าสุด)", weight: "bold", size: "xs", color: "#ff9f00" },
+        { type: "text", text: "📤 RECENT REDEEMS", weight: "bold", size: "xs", color: "#ff9f00" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({
           type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().slice(-4) || '?'} | -${u.points_redeemed}p | ${formatTime(u.created_at)}`, size: "xxs", color: "#333333"
         })) : [{ type: "text", text: "-", size: "xxs" }] }
