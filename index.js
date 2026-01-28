@@ -162,26 +162,38 @@ app.post("/webhook", async (req, res) => {
                 return await sendReply(event.replyToken, "โหมดแอดมิน 🔓");
             }
             // --- คำสั่งลับเรียกดูรายการ ID เมนูทั้งหมด ---
-            else if (userMsg === "GET_MENU_ID" && isUserAdmin) {
-                try {
-                    const response = await axios.get("https://api.line.me/v2/bot/richmenu/list", {
-                        headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
-                    });
-        
-                    const menus = response.data.richmenus;
-                    if (!menus || menus.length === 0) {
-                        return await sendReply(event.replyToken, "📭 ไม่พบ Rich Menu ในระบบเลยค่ะ ลองสร้างใน Manager ก่อนนะคะ");
-                    }
+            // ... (คำสั่งแอดมินอื่น ๆ เช่น USAGE, OK, LIST_ADMIN) ...
 
-                    let msg = "📋 รายชื่อ Rich Menu ID:\n\n";
-                    menus.forEach((m, i) => {
-                        msg += `${i+1}. ${m.chatBarText}\nID: ${m.richMenuId}\n---\n`;
+            // --- คำสั่งลับเรียกดูรายการ ID เมนูทั้งหมด ---
+            else if (userMsg === "GET_MENU_ID" && isUserAdmin) {
+                // ... (โค้ดดึงไอดีเดิมของเปรม) ...
+            }
+
+            // ✨ วางคำสั่งใหม่ตรงนี้เลยค่ะเปรม! ✨
+            else if (userMsg === "CREATE_ADMIN_MENU" && isUserAdmin) {
+                try {
+                    const richMenuObj = {
+                        size: { width: 2500, height: 1686 },
+                        selected: false,
+                        name: "Admin God Mode",
+                        chatBarText: "เมนูแอดมิน 🔓",
+                        areas: [
+                            { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "message", text: "RECENT_REPORTS" } },
+                            { bounds: { x: 833, y: 0, width: 833, height: 843 }, action: { type: "message", text: "OK" } },
+                            { bounds: { x: 1666, y: 0, width: 834, height: 843 }, action: { type: "message", text: "LIST_ADMIN" } },
+                            { bounds: { x: 0, y: 843, width: 2500, height: 843 }, action: { type: "message", text: "SWITCH_TO_USER" } }
+                        ]
+                    };
+
+                    const res = await axios.post("https://api.line.me/v2/bot/richmenu", richMenuObj, {
+                        headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' }
                     });
-                    await sendReply(event.replyToken, msg);
+
+                    await sendReply(event.replyToken, `✅ สร้างสำเร็จ!\nID: ${res.data.richMenuId}\n\n⚠️ ก๊อป ID นี้ไปใส่ใน Railway ADMIN_RICHMENU_ID นะคะ!`);
                 } catch (e) {
-                    await sendReply(event.replyToken, "❌ ดึงข้อมูลไม่ได้: " + (e.response?.data?.message || e.message));
+                    await sendReply(event.replyToken, "❌ สร้างไม่ได้: " + (e.response?.data?.message || e.message));
                 }
-            }   
+            }
         }
 
         // --- 🧺 ฟังก์ชันสมาชิกทั่วไป ---
