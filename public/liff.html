@@ -42,6 +42,8 @@
 
 <script>
     let userId = "";
+    // ✨ ระบุ URL ของ Railway ของเปรมที่นี่ (เช็กให้ตรงกับที่ใช้ใน Line Developer นะคะ)
+    const SERVER_URL = "https://90-production.up.railway.app"; 
 
     async function main() {
         await liff.init({ liffId: "2008944819-N4ozrStq" }); 
@@ -52,10 +54,15 @@
             userId = profile.userId;
             
             try {
-                const res = await fetch(`/api/get-user-points?userId=${userId}`);
+                // ✨ เปลี่ยนจาก /api/... เป็น URL เต็ม เพื่อกันบัคหาไฟล์ไม่เจอ
+                const res = await fetch(`${SERVER_URL}/api/get-user-points?userId=${userId}`);
                 const data = await res.json();
-                document.getElementById('userPoints').innerText = data.points;
+                
+                // เช็กว่ามีข้อมูล points กลับมาไหม ถ้าไม่มีให้เป็น 0
+                const currentPoints = (data && data.points !== undefined) ? data.points : 0;
+                document.getElementById('userPoints').innerText = currentPoints;
             } catch (err) {
+                console.error("Fetch Points Error:", err);
                 document.getElementById('userPoints').innerText = "0";
             }
         }
@@ -67,30 +74,35 @@
             return;
         }
 
+        // 🛡️ เช็กยอดแต้มปัจจุบันก่อนสแกน
+        const currentPoints = parseInt(document.getElementById('userPoints').innerText) || 0;
+        if (currentPoints < amount) {
+            alert(`❌ แต้มไม่พอค่ะ!\nคุณมี ${currentPoints} แต้ม แต่ต้องการใช้ ${amount} แต้ม`);
+            return;
+        }
+
         try {
-            // 📸 1. เปิดกล้องสแกน QR
             const result = await liff.scanCode(); 
             let machineId = result.value;
             
             if (machineId) {
-                // ✂️ 2. ตัดแต่งชื่อเครื่องให้สวยงาม (ลบ URL ออก)
                 if (machineId.includes("machine_id=")) {
-                    // ดึงค่าหลัง machine_id= และตัดค่าอื่นหลัง & ออกถ้ามี
                     machineId = machineId.split("machine_id=")[1].split("&")[0];
                 } else if (machineId.startsWith("http")) {
-                    // กรณีเป็นลิงก์แบบอื่น ให้เอาคำสุดท้ายหลัง / มาโชว์
                     machineId = machineId.split('/').pop().split('?')[0];
                 }
 
-                // 🚀 3. ส่งข้อมูลไปที่ Server
-                const response = await fetch(`/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
+                // ✨ ส่งไปที่ URL เต็มของ Server
+                const response = await fetch(`${SERVER_URL}/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
                 const text = await response.text();
                 if (text.includes("SUCCESS")) { 
                     liff.closeWindow(); 
+                } else {
+                    alert("❌ ทำรายการไม่สำเร็จ: " + text);
                 }
             }
         } catch (err) {
-            alert("🔴 เกิดข้อผิดพลาด!\nCode: " + err.code + "\nMessage: " + err.message);
+            alert("🔴 เกิดข้อผิดพลาด!\n" + err.message);
         }
     }
 
