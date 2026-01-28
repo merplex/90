@@ -3,78 +3,177 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เลือกราคา - NINETY Point</title>
-    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <title>Ninety Wash - ใช้แต้ม</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
-        body { font-family: sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 20px; }
-        .card { background: white; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; padding: 25px; text-align: center; }
-        .balance-box { background: #00b900; color: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
-        .balance-box span { font-size: 24px; font-weight: bold; }
-        .grid-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .btn-price { background: #fff; border: 2px solid #00b900; color: #00b900; border-radius: 15px; padding: 15px 5px; font-size: 18px; font-weight: bold; cursor: pointer; }
-        /* ปรับความสูงปุ่มลงนิดนึงเพื่อให้พอดี 4 แถว */
-        .btn-price { 
-            background: #fff; 
-            border: 2px solid #00b900; 
-            color: #00b900; 
-            border-radius: 12px; /* มนน้อยลงนิดนึงจะดูเท่ขึ้น */
-            padding: 12px 2px;   /* ลด padding บน-ล่าง */
-            font-size: 18px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            transition: all 0.2s; 
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: 'Kanit', sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: #fff;
+            width: 100%;
+            max-width: 400px;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+        }
+
+        /* 🌟 ส่วนแสดงยอดแต้มบนสุด */
+        .point-display {
+            background: linear-gradient(135deg, #06c755, #05a848);
+            color: white;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .point-display span { font-size: 14px; opacity: 0.9; }
+        .point-display div { font-size: 24px; font-weight: bold; margin-top: 5px; }
+
+        h3 { margin: 0 0 20px 0; color: #333; text-align: center; font-size: 18px; }
+
+        /* 🎨 Grid Layout 3 คอลัมน์ */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        /* แถวที่ 1: กรอกเอง (2 ส่วน) + ยืนยัน (1 ส่วน) */
+        .input-manual {
+            grid-column: span 2;
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid #eee;
+            border-radius: 12px;
+            outline: none;
+            text-align: center;
+        }
+        .input-manual:focus { border-color: #06c755; }
+
+        .btn-confirm {
+            background-color: #06c755;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn-confirm:active { transform: scale(0.95); background-color: #05a848; }
+
+        /* ปุ่มสำเร็จรูป */
+        .btn-preset {
+            background: white;
+            border: 2px solid #f0f0f0;
+            padding: 18px 0;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 15px;
+            color: #333;
+            cursor: pointer;
+        }
+        .btn-preset:active { background: #f0f0f0; transform: scale(0.95); }
+
+        .loading-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: none; justify-content: center; align-items: center;
+            border-radius: 20px;
         }
     </style>
 </head>
 <body>
-<div class="card">
-    <h3>Ninety Wash</h3>
-    <div class="balance-box">ยอดแต้ม: <span id="userPoints">...</span></div>
-        <div class="grid-container">
-            <button class="btn-price" onclick="selectPrice(10)">10</button>
-            <button class="btn-price" onclick="selectPrice(20)">20</button>
-            <button class="btn-price" onclick="selectPrice(30)">30</button>
-            <button class="btn-price" onclick="selectPrice(40)">40</button>
-            <button class="btn-price" onclick="selectPrice(50)">50</button>
-            <button class="btn-price" onclick="selectPrice(60)">60</button>
-            <button class="btn-price" onclick="selectPrice(70)">70</button>
-            <button class="btn-price" onclick="selectPrice(80)">80</button>
-            <button class="btn-price" onclick="selectPrice(90)">90</button>
-            <button class="btn-price" onclick="selectPrice(100)">100</button>
-            <button class="btn-price" onclick="selectPrice(110)">110</button>
-            <button class="btn-price" onclick="selectPrice(120)">120</button>
-        </div>
+
+<div class="container">
+    <div class="point-display">
+        <span>ยอดแต้มปัจจุบันของคุณ</span>
+        <div id="current-points">... แต้ม</div>
+    </div>
+
+    <h3>เลือกจำนวนแต้มที่ต้องการใช้ ✨</h3>
+
+    <div class="grid-container">
+        <input type="number" id="manualInput" class="input-manual" placeholder="ระบุเอง...">
+        <button class="btn-confirm" onclick="handleManual()">ยืนยัน</button>
+
+        <button class="btn-preset" onclick="startRedeem(20)">20</button>
+        <button class="btn-preset" onclick="startRedeem(30)">30</button>
+        <button class="btn-preset" onclick="startRedeem(40)">40</button>
+
+        <button class="btn-preset" onclick="startRedeem(50)">50</button>
+        <button class="btn-preset" onclick="startRedeem(60)">60</button>
+        <button class="btn-preset" onclick="startRedeem(70)">70</button>
+
+        <button class="btn-preset" onclick="startRedeem(80)">80</button>
+        <button class="btn-preset" onclick="startRedeem(90)">90</button>
+        <button class="btn-preset" onclick="startRedeem(100)">100</button>
+    </div>
+
+    <div id="loading" class="loading-overlay">กำลังประมวลผล...</div>
 </div>
+
 <script>
-    let userId = "";
-    async function main() {
-        await liff.init({ liffId: "2008944819-N4ozrStq" }); //
-        if (!liff.isLoggedIn()) { liff.login(); } 
-        else {
+    // 1. เริ่มต้น LIFF และดึงแต้มมาแสดง
+    async function initLIFF() {
+        try {
+            await liff.init({ liffId: "YOUR_LIFF_ID" }); // ⚠️ ใส่ LIFF ID ของเปรมตรงนี้ค่ะ
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
             const profile = await liff.getProfile();
-            userId = profile.userId;
-            const res = await fetch(`/api/get-user-points?userId=${userId}`);
+            fetchPoints(profile.userId);
+        } catch (err) { console.error("LIFF Init Error", err); }
+    }
+
+    // 2. ดึงแต้มจาก Backend (ต้องมี API รองรับนะคะ)
+    async function fetchPoints(userId) {
+        try {
+            // เรียกไปที่ API ของเปรม (ตัวอย่างชื่อ endpoint)
+            const res = await fetch(`/api/get-points?userId=${userId}`);
             const data = await res.json();
-            document.getElementById('userPoints').innerText = data.points;
+            document.getElementById('current-points').innerText = `${data.points || 0} แต้ม`;
+        } catch (e) { document.getElementById('current-points').innerText = "0 แต้ม"; }
+    }
+
+    // 3. ฟังก์ชันสำหรับปุ่ม "ยืนยัน" (กรอกเอง)
+    function handleManual() {
+        const amount = document.getElementById('manualInput').value;
+        if (!amount || amount <= 0) {
+            alert("กรุณาระบุแต้มที่ต้องการใช้ให้ถูกต้องก่อนนะคะ ✨");
+            return;
+        }
+        startRedeem(amount);
+    }
+
+    // 4. ฟังก์ชันเปิดกล้องและส่งค่าไปหักแต้ม
+    async function startRedeem(amount) {
+        try {
+            // เปิดกล้องสแกน
+            const result = await liff.scanCode();
+            const machineId = result.value;
+
+            if (machineId) {
+                document.getElementById('loading').style.display = 'flex';
+                const profile = await liff.getProfile();
+                
+                // ส่งไปที่ endpoint สำหรับตัดแต้มที่เปรมทำไว้ใน index.js
+                window.location.href = `/liff/redeem-execute?userId=${profile.userId}&amount=${amount}&machine_id=${machineId}`;
+            }
+        } catch (err) {
+            console.log("Scan cancelled or error", err);
         }
     }
-    async function selectPrice(amount) {
-        try {
-            const result = await liff.scanCode(); // เปิดกล้องสแกน QR หน้าตู้
-            const machineId = result.value;
-            if (machineId) {
-                const response = await fetch(`/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
-                const text = await response.text();
-                if (text.includes("SUCCESS")) { liff.closeWindow(); }
-            }
-        }   catch (err) {
-    // โชว์รหัส Error และข้อความที่ LINE ส่งกลับมาจริงๆ
-    alert("🔴 เกิดข้อผิดพลาด!\nCode: " + err.code + "\nMessage: " + err.message);
-    console.error(err);
-}
 
-    }
-    main();
+    initLIFF();
 </script>
+
 </body>
 </html>
