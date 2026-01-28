@@ -1,5 +1,5 @@
 require("dotenv").config();
-const crypto = require("crypto"); // ต้องใช้สำหรับสร้าง Token
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -11,19 +11,17 @@ app.use(cors(), express.json(), express.static("public"));
 const supabase = createClient(process.env.SUPABASE_URL || "", process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 let adminWaitList = new Set(); 
 
-/* ====================================
-   1. HMI API (สำหรับตู้ซักผ้า) -> สร้าง QR
-==================================== */
+/* ============================================================
+   1. API SYSTEM (HMI & LIFF)
+============================================================ */
+
+// API สร้าง QR (สำหรับตู้ HMI)
 app.post("/create-qr", async (req, res) => {
     try {
         const { amount, machine_id } = req.body;
-        
-        // คำนวณแต้ม (ตัวอย่าง: 10 บาท ได้ 1 แต้ม)
-        // ถ้าอยากได้สูตรอื่น แก้ตรงนี้ได้เลยค่ะ
-        const point_get = Math.floor(amount / 10); 
+        const point_get = Math.floor(amount / 10); // สูตรคำนวณแต้ม
         const token = crypto.randomUUID();
 
-        // บันทึกลงฐานข้อมูล
         const { error } = await supabase.from("qrPointToken").insert({
             qr_token: token,
             point_get: point_get,
@@ -33,27 +31,16 @@ app.post("/create-qr", async (req, res) => {
 
         if (error) throw error;
 
-        // สร้าง Link สำหรับ QR Code
-        // (HMI จะเอา url นี้ไปแปลงเป็น QR Code ให้ลูกค้าสแกน)
         const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
         
-        res.json({ 
-            success: true, 
-            qr_url: liffUrl, 
-            points: point_get,
-            token: token 
-        });
-
+        res.json({ success: true, qr_url: liffUrl, points: point_get, token: token });
     } catch (e) {
-        console.error(e);
+        console.error("Create QR Error:", e);
         res.status(500).json({ success: false, error: e.message });
     }
 });
 
-/* ====================================
-   2. LIFF API (ฝั่งลูกค้าสแกน/แลกแต้ม)
-==================================== */
-// API ดึงยอดแต้ม (แก้ปัญหาแต้ม 0)
+// API ดึงยอดแต้ม (สำหรับหน้า LIFF)
 app.get("/api/get-user-points", async (req, res) => {
     const { userId } = req.query;
     try {
@@ -64,6 +51,7 @@ app.get("/api/get-user-points", async (req, res) => {
     } catch (e) { res.status(500).json({ points: 0 }); }
 });
 
+// API ตัดแต้ม (LIFF Consume)
 app.get("/liff/consume", async (req, res) => {
   try {
     const { token, userId } = req.query;
@@ -84,6 +72,7 @@ app.get("/liff/consume", async (req, res) => {
   } catch (err) { res.status(500).send(err.message); }
 });
 
+// API แลกแต้ม (LIFF Redeem)
 app.get("/liff/redeem-execute", async (req, res) => {
   try {
     let { userId, amount, machine_id } = req.query;
@@ -101,14 +90,16 @@ app.get("/liff/redeem-execute", async (req, res) => {
   } catch (err) { res.status(500).send(err.message); }
 });
 
-/* ====================================
-   3. WEBHOOK (ADMIN GOD MODE)
-==================================== */
+/* ============================================================
+   2. WEBHOOK & BOT LOGIC
+============================================================ */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
   for (let event of events) {
     const userId = event.source.userId;
+    // Check Admin Status
     const isUserAdmin = await isAdmin(userId);
+
     if (event.type !== "message" || event.message.type !== "text") continue;
 
     const rawMsg = event.message.text.trim();
@@ -116,7 +107,9 @@ app.post("/webhook", async (req, res) => {
 
     try {
       if (userMsg === "USER_LINE") return await sendReply(event.replyToken, `ID: ${userId}`);
+      
       if (isUserAdmin) {
+        // --- Admin Flow ---
         if (adminWaitList.has(userId)) {
           adminWaitList.delete(userId);
           return await addNewAdmin(rawMsg, event.replyToken);
@@ -128,25 +121,68 @@ app.post("/webhook", async (req, res) => {
         if (userMsg === "LIST_ADMIN") return await listAdminsWithDelete(event.replyToken);
         if (userMsg === "ADD_ADMIN_STEP1") { 
             adminWaitList.add(userId); 
-            return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อมาได้เลยค่ะ"); 
+            return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อมาได้เลยค่ะ (เช่น: U123... Boss)"); 
         }
         if (userMsg.startsWith("DEL_ADMIN_ID ")) return await deleteAdmin(rawMsg.split(" ")[1], event.replyToken);
         if (userMsg.startsWith("APPROVE_ID ")) return await approveSpecificPoint(rawMsg.split(" ")[1], event.replyToken);
       }
       
+      // --- User Flow ---
       const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
-      if (member && userMsg === "CHECK_POINT") {
+      if (member) {
+        if (userMsg === "CHECK_POINT") {
           const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           await sendReply(event.replyToken, `🌟 ยอดแต้มของคุณ: ${w?.point_balance || 0} แต้ม`);
+        }
       }
-    } catch (e) { console.error(e.message); }
+    } catch (e) { console.error("Webhook Error:", e); }
   }
   res.sendStatus(200);
 });
 
-/* ====================================
-   4. UI COMPONENTS (DASHBOARD)
-==================================== */
+/* ============================================================
+   3. HELPER FUNCTIONS (API & DB)
+   ** วางไว้ด้านล่างเพื่อให้ Scope มองเห็นได้ทั่วถึง **
+============================================================ */
+
+async function isAdmin(uid) { 
+    if(!uid) return false;
+    const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).single(); 
+    return !!data; 
+}
+
+async function addNewAdmin(input, rt) {
+  const parts = input.split(/\s+/);
+  const tid = parts[0];
+  const name = parts.slice(1).join(" ") || "Admin_New";
+  if (!tid.startsWith("U") || tid.length < 30) return await sendReply(rt, "❌ ID ผิดพลาด");
+  await supabase.from("bot_admins").upsert({ line_user_id: tid, admin_name: name }, { onConflict: 'line_user_id' });
+  await sendReply(rt, `✅ เพิ่มแอดมิน: ${name} สำเร็จ!`);
+}
+
+async function deleteAdmin(tid, rt) {
+  const { data: adms } = await supabase.from("bot_admins").select("id");
+  if (adms.length <= 1) return await sendReply(rt, "⚠️ ลบไม่ได้! ต้องเหลือแอดมินอย่างน้อย 1 คน");
+  await supabase.from("bot_admins").delete().eq("line_user_id", tid);
+  await sendReply(rt, "🗑️ ลบเรียบร้อย");
+}
+
+async function approveSpecificPoint(rid, rt) {
+  const { data: req } = await supabase.from("point_requests").select("*").eq("id", rid).single();
+  if (!req) return;
+  const { data: m } = await supabase.from("ninetyMember").select("id").eq("line_user_id", req.line_user_id).single();
+  const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", m.id).single();
+  const newTotal = (w?.point_balance || 0) + req.points;
+  await supabase.from("memberWallet").upsert({ member_id: m.id, point_balance: newTotal }, { onConflict: 'member_id' });
+  await supabase.from("point_requests").delete().eq("id", req.id);
+  await sendReply(rt, `✅ อนุมัติสำเร็จ!`);
+  await sendReplyPush(req.line_user_id, `🎊 แอดมินอนุมัติให้ ${req.points} แต้มแล้วค่ะ`);
+}
+
+/* ============================================================
+   4. UI FUNCTIONS (FLEX MESSAGES)
+============================================================ */
+
 async function sendAdminDashboard(replyToken) {
   const flex = { 
       type: "bubble", 
@@ -175,7 +211,6 @@ async function listAdminsWithDelete(replyToken) {
   try {
       const { data: adms } = await supabase.from("bot_admins").select("*");
       if (!adms || adms.length === 0) return await sendReply(replyToken, "❌ ไม่พบข้อมูลแอดมิน");
-
       const isOnlyOne = adms.length <= 1;
       const adminRows = adms.map(a => ({
         type: "box", layout: "horizontal", margin: "sm", contents: [
@@ -229,46 +264,32 @@ async function listCombinedReport(replyToken) {
   } catch (e) { await sendReply(replyToken, "❌ Report Error: " + e.message); }
 }
 
-/* ====================================
-   5. HELPERS
-==================================== */
-async function isAdmin(uid) { 
-    if(!uid) return false;
-    const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).single(); 
-    return !!data; 
+/* ============================================================
+   5. MESSAGE SENDER (แก้บัค 400 Bad Request)
+============================================================ */
+
+async function sendReply(replyToken, text) { 
+    // Format มาตรฐาน: { type: "text", text: ... }
+    await axios.post("https://api.line.me/v2/bot/message/reply", { 
+        replyToken: replyToken, 
+        messages: [{ type: "text", text: text }] 
+    }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
 }
 
-async function addNewAdmin(input, rt) {
-  const parts = input.split(/\s+/);
-  const tid = parts[0];
-  const name = parts.slice(1).join(" ") || "Admin_New";
-  if (!tid.startsWith("U") || tid.length < 30) return await sendReply(rt, "❌ ID ผิดพลาด");
-  await supabase.from("bot_admins").upsert({ line_user_id: tid, admin_name: name }, { onConflict: 'line_user_id' });
-  await sendReply(rt, `✅ เพิ่มแอดมิน: ${name} สำเร็จ!`);
+async function sendReplyPush(to, text) { 
+    await axios.post("https://api.line.me/v2/bot/message/push", { 
+        to: to, 
+        messages: [{ type: "text", text: text }] 
+    }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
 }
 
-async function deleteAdmin(tid, rt) {
-  const { data: adms } = await supabase.from("bot_admins").select("id");
-  if (adms.length <= 1) return await sendReply(rt, "⚠️ ลบไม่ได้! ต้องเหลือแอดมินอย่างน้อย 1 คน");
-  await supabase.from("bot_admins").delete().eq("line_user_id", tid);
-  await sendReply(rt, "🗑️ ลบเรียบร้อย");
+async function sendFlex(replyToken, altText, flexContents) { 
+    // Format มาตรฐาน: { type: "flex", altText: ..., contents: ... }
+    await axios.post("https://api.line.me/v2/bot/message/reply", { 
+        replyToken: replyToken, 
+        messages: [{ type: "flex", altText: altText, contents: flexContents }] 
+    }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
 }
-
-async function approveSpecificPoint(rid, rt) {
-  const { data: req } = await supabase.from("point_requests").select("*").eq("id", rid).single();
-  if (!req) return;
-  const { data: m } = await supabase.from("ninetyMember").select("id").eq("line_user_id", req.line_user_id).single();
-  const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", m.id).single();
-  const newTotal = (w?.point_balance || 0) + req.points;
-  await supabase.from("memberWallet").upsert({ member_id: m.id, point_balance: newTotal }, { onConflict: 'member_id' });
-  await supabase.from("point_requests").delete().eq("id", req.id);
-  await sendReply(rt, `✅ อนุมัติสำเร็จ!`);
-  await sendReplyPush(req.line_user_id, `🎊 แอดมินอนุมัติให้ ${req.points} แต้มแล้วค่ะ`);
-}
-
-async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-async function sendFlex(rt, altText, contents) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
