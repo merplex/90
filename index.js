@@ -139,6 +139,25 @@ app.post("/webhook", async (req, res) => {
                 else if (userMsg === "REFUND") {
                     await handleRefund(member.id, event.replyToken);
                 }
+                // ในส่วนของ Webhook ที่เปรมเช็กข้อความตัวอักษร
+                else if (event.type === "message" && event.message.type === "text") {
+                    const userMsg = event.message.text.trim().toUpperCase(); // แปลงเป็นตัวใหญ่เพื่อให้พิมพ์เล็กพิมพ์ใหญ่ก็ได้หมดค่ะ
+                    const userId = event.source.userId; // นี่คือค่าที่เราต้องการค่ะ
+
+                    try {
+                        // ✨ เพิ่มคำสั่งนี้ลงไปค่ะ
+                        if (userMsg === "USER_LINE") {
+                            await sendReply(event.replyToken, `รหัส User ID ของคุณคือ:\n${userId}`);
+                            return; // จบงานตรงนี้ ไม่ต้องไปเช็กเงื่อนไขอื่นต่อค่ะ
+                        }
+
+                        // ... เงื่อนไขอื่นๆ ของเปรม (เช่น CHECK_POINT, REDEEM) ...
+
+                    } catch (e) {
+                        console.error("Error in USER_LINE command:", e);
+                    }
+                }
+
             }
         }
       } catch (e) { console.error(e.message); }
