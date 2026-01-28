@@ -126,14 +126,72 @@ async function sendManageAdminFlex(replyToken) {
     await sendFlex(replyToken, flex);
 }
 async function listCombinedReport(replyToken) {
-    const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
-    const { data: earns } = await supabase.from("qrPointToken").select("*").limit(5).order("used_at", { ascending: false });
-    const { data: redeems } = await supabase.from("redeemlogs").select("*").limit(5).order("created_at", { ascending: false });
-    const flex = { type: "flex", altText: "Activity Report", contents: { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" }, { type: "text", text: "🔔 PENDING REQUESTS", weight: "bold", size: "xs", color: "#ff4b4b" }, { type: "box", layout: "vertical", contents: (pending && pending.length > 0) ? pending.map(r => ({ type: "box", layout: "horizontal", margin: "xs", contents: [{ type: "text", text: `+${r.points} (${r.line_user_id.substring(0,5)})`, size: "xxs", gravity: "center" }, { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 0, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }] })) : [{ type: "text", text: "ไม่พบรายการค้าง", size: "xxs", color: "#aaaaaa" }] }, { type: "separator" }, { type: "text", text: "📥 RECENT EARNS (5)", weight: "bold", size: "xs", color: "#00b900" }, ...earns.map(e => ({ type: "text", text: `• ${new Date(e.used_at).toLocaleTimeString('th-TH')} | +${e.point_get} pts`, size: "xxs" })), { type: "separator" }, { type: "text", text: "📤 RECENT REDEEMS (5)", weight: "bold", size: "xs", color: "#ff9f00" }, ...redeems.map(u => ({ type: "text", text: `• ${new Date(u.created_at).toLocaleTimeString('th-TH')} | -${u.points_redeemed} pts`, size: "xxs" }))] } } };
-    await sendFlex(replyToken, flex);
+    try {
+        // ดึงข้อมูล 3 ส่วนหลัก
+        const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
+        const { data: earns } = await supabase.from("qrPointToken").select("*").limit(5).order("used_at", { ascending: false });
+        const { data: redeems } = await supabase.from("redeemlogs").select("*").limit(5).order("created_at", { ascending: false });
+
+        await sendFlex(replyToken, "Activity Report", {
+            type: "bubble",
+            body: { type: "box", layout: "vertical", spacing: "md", contents: [
+                { type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" },
+                
+                // 1. ส่วนงานค้าง (Pending) - แสดง ID และปุ่มกด
+                { type: "text", text: "🔔 PENDING (งานค้าง)", weight: "bold", size: "xs", color: "#ff4b4b" },
+                { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({
+                    type: "box", layout: "horizontal", margin: "xs", contents: [
+                        { type: "text", text: `+${r.points} pts [..${r.line_user_id.slice(-5)}]`, size: "xxs", gravity: "center", flex: 3 },
+                        { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
+                    ]
+                })) : [{ type: "text", text: "ไม่พบรายการค้าง", size: "xxs", color: "#aaaaaa" }] },
+                
+                { type: "separator" },
+
+                // 2. ส่วนรับแต้มล่าสุด (Recent Earns) - แสดงเวลา, ID และแต้ม
+                { type: "text", text: "📥 RECENT EARNS (รับแต้มล่าสุด)", weight: "bold", size: "xs", color: "#00b900" },
+                { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({
+                    type: "text", text: `• ${new Date(e.used_at).toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})} | ID:..${e.used_by?.slice(-5) || 'N/A'} | +${e.point_get} pts`, size: "xxs", color: "#333333"
+                })) : [{ type: "text", text: "ไม่มีประวัติรับแต้ม", size: "xxs", color: "#aaaaaa" }] },
+
+                { type: "separator" },
+
+                // 3. ส่วนแลกแต้มล่าสุด (Recent Redeems) - แสดงเวลา, สถานะ, ID และแต้ม
+                { type: "text", text: "📤 RECENT REDEEMS (แลกแต้มล่าสุด)", weight: "bold", size: "xs", color: "#ff9f00" },
+                { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({
+                    type: "text", text: `• ${new Date(u.created_at).toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'})} | ${u.status === 'pending' ? '⏳' : '✅'} ..${u.member_id?.toString().slice(-4)} | -${u.points_redeemed} pts`, size: "xxs", color: "#333333"
+                })) : [{ type: "text", text: "ไม่มีประวัติแลกแต้ม", size: "xxs", color: "#aaaaaa" }] }
+            ]}
+        });
+    } catch (e) {
+        console.error(e);
+        await sendReply(replyToken, "❌ ดึงรายงานไม่สำเร็จค่ะ");
+    }
 }
+
 async function isAdmin(uid) { const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).single(); return !!data; }
-async function addNewAdmin(targetId, replyToken) { if (!targetId.startsWith("U") || targetId.length < 30) return await sendReply(replyToken, "❌ รหัส ID ผิดพลาด"); await supabase.from("bot_admins").insert({ line_user_id: targetId, admin_name: "Admin_New" }); await sendReply(replyToken, `✅ เพิ่มแอดมิน ${targetId.substring(0,6)}... สำเร็จ!`); }
+async function addNewAdmin(input, replyToken) {
+    // แยกข้อความด้วยเว้นวรรคอันแรก
+    const parts = input.split(/\s+/); 
+    const targetId = parts[0]; // ตัวแรกคือ ID
+    const adminName = parts.slice(1).join(" ") || "Admin_New"; // ที่เหลือทั้งหมดคือชื่อ (ถ้าไม่มีให้ใช้ Admin_New)
+
+    if (!targetId.startsWith("U") || targetId.length < 30) {
+        return await sendReply(replyToken, "❌ รูปแบบ ID ไม่ถูกต้องค่ะ (ต้องขึ้นต้นด้วย U)");
+    }
+
+    try {
+        const { error } = await supabase.from("bot_admins").upsert({ 
+            line_user_id: targetId, 
+            admin_name: adminName 
+        }, { onConflict: 'line_user_id' });
+
+        if (error) throw error;
+        await sendReply(replyToken, `✅ เพิ่มแอดมินเรียบร้อย!\n👤 ชื่อ: ${adminName}\n🆔 ID: ${targetId.substring(0,6)}...`);
+    } catch (e) {
+        await sendReply(replyToken, "❌ เพิ่มไม่ได้: " + e.message);
+    }
+}
 async function approveSpecificPoint(requestId, replyToken) {
     const { data: req } = await supabase.from("point_requests").select("*").eq("id", requestId).single();
     if (!req) return;
