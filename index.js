@@ -10,16 +10,24 @@ app.use(cors(), express.json(), express.static("public"));
 
 const supabase = createClient(process.env.SUPABASE_URL || "", process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 let adminWaitList = new Set(); 
+let ratioWaitList = new Set(); // ✅ เรเพิ่ม List สำหรับรอกรอกอัตราส่วนค่ะ
 
 /* ============================================================
    1. API SYSTEM (HMI & LIFF)
 ============================================================ */
 
-// API สร้าง QR (สำหรับตู้ HMI) - บันทึก scan_amount ครบถ้วน
+// API สร้าง QR (สำหรับตู้ HMI) - ดึงอัตราส่วนจาก DB มาคำนวณ
 app.post("/create-qr", async (req, res) => {
     try {
         const { amount, machine_id } = req.body;
-        const point_get = Math.floor(amount / 10); 
+        
+        // 💰 ดึงอัตราส่วนล่าสุดจาก DB (ถ้าไม่มีให้ใช้ 10:1 เป็นค่าพื้นฐาน)
+        const { data: config } = await supabase.from("system_configs").select("*").eq("config_key", "exchange_ratio").maybeSingle();
+        const baht_rate = config ? config.baht_val : 10;
+        const point_rate = config ? config.point_val : 1;
+
+        // คำนวณแต้มตามอัตราส่วนที่กำหนด
+        const point_get = Math.floor((amount / baht_rate) * point_rate); 
         const token = crypto.randomUUID();
 
         const { error } = await supabase.from("qrPointToken").insert({
@@ -119,6 +127,12 @@ app.post("/webhook", async (req, res) => {
       
       // --- Admin Flow ---
       if (isUserAdmin) {
+        // ✅ ดักจับการกรอก บาท:แต้ม
+        if (ratioWaitList.has(userId)) {
+            ratioWaitList.delete(userId);
+            return await updateExchangeRatio(rawMsg, event.replyToken);
+        }
+
         if (adminWaitList.has(userId)) {
           adminWaitList.delete(userId);
           return await addNewAdmin(rawMsg, event.replyToken);
@@ -128,6 +142,13 @@ app.post("/webhook", async (req, res) => {
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
         if (userMsg === "REPORT") return await listCombinedReport(event.replyToken);
         if (userMsg === "LIST_ADMIN") return await listAdminsWithDelete(event.replyToken);
+        
+        // ✅ คำสั่งเมนูที่ 3: เริ่มกระบวนการตั้งค่าอัตราส่วน
+        if (userMsg === "SET_RATIO_STEP1") {
+            ratioWaitList.add(userId);
+            return await sendReply(event.replyToken, "📊 ระบุ บาท:แต้ม ที่ต้องการกำหนดได้เลยค่ะ\n(เช่น พิมพ์ 10:1 หมายถึง 10 บาท ได้ 1 แต้ม)");
+        }
+
         if (userMsg === "ADD_ADMIN_STEP1") { 
             adminWaitList.add(userId); 
             return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อมาได้เลยค่ะ"); 
@@ -170,6 +191,26 @@ app.post("/webhook", async (req, res) => {
 /* ============================================================
    3. HELPERS & DB LOGIC
 ============================================================ */
+
+// ✅ ฟังก์ชันอัปเดตอัตราส่วน (บาท:แต้ม)
+async function updateExchangeRatio(input, rt) {
+    const parts = input.split(":");
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+        return await sendReply(rt, "❌ รูปแบบผิด! กรุณาพิมพ์ ตัวเลข:ตัวเลข เช่น 10:1 ค่ะ");
+    }
+    const baht = parseInt(parts[0]);
+    const point = parseInt(parts[1]);
+
+    await supabase.from("system_configs").upsert({
+        config_key: "exchange_ratio",
+        baht_val: baht,
+        point_val: point,
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'config_key' });
+
+    await sendReply(rt, `✅ ตั้งค่าสำเร็จ!\nตอนนี้คือ ${baht} บาท ต่อ ${point} แต้มค่ะ`);
+}
+
 async function isAdmin(uid) { 
     if(!uid) return false;
     const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).maybeSingle(); 
@@ -210,7 +251,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. UI DASHBOARD & REPORT (FIXED EARNS)
+   4. UI DASHBOARD & REPORT
 ============================================================ */
 
 async function sendAdminDashboard(replyToken) {
@@ -219,7 +260,9 @@ async function sendAdminDashboard(replyToken) {
       header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, 
       body: { type: "box", layout: "vertical", spacing: "md", contents: [
           { type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, 
-          { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }
+          { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } },
+          // ✅ ปุ่มที่ 3: ตั้งค่าอัตราส่วน
+          { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }
       ]} 
   };
   await sendFlex(replyToken, "God Mode", flex);
@@ -249,46 +292,21 @@ async function listAdminsWithDelete(replyToken) {
 async function listCombinedReport(replyToken) {
   try {
     const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
-    
-    // 🔥 แก้บัค Earns หาย: ใช้ .not("used_at", "is", null) เพื่อความแม่นยำ 
-    const { data: earns } = await supabase.from("qrPointToken")
-        .select("*")
-        .eq("is_used", true)
-        .not("used_at", "is", null) 
-        .order("used_at", { ascending: false })
-        .limit(5);
-        
+    const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(5);
     const { data: redeems } = await supabase.from("redeemlogs").select("*").limit(5).order("created_at", { ascending: false });
-
     const formatTime = (isoStr) => isoStr ? new Date(isoStr).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
-
     const flex = {
       type: "bubble",
       body: { type: "box", layout: "vertical", spacing: "md", contents: [
         { type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" },
-        
         { type: "text", text: "🔔 PENDING", weight: "bold", size: "xs", color: "#ff4b4b" },
-        { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({
-          type: "box", layout: "horizontal", margin: "xs", contents: [
-            // ✨ เปลี่ยนโชว์ ID เป็น 6 ตัวแรก
-            { type: "text", text: `+${r.points}p [${r.line_user_id.substring(0, 6)}..]`, size: "xxs", gravity: "center", flex: 3 },
-            { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
-          ]
-        })) : [{ type: "text", text: "-", size: "xxs", color: "#aaaaaa" }] },
-        
+        { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({ type: "box", layout: "horizontal", margin: "xs", contents: [{ type: "text", text: `+${r.points}p [${r.line_user_id.substring(0, 6)}..]`, size: "xxs", gravity: "center", flex: 3 }, { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }] })) : [{ type: "text", text: "-", size: "xxs", color: "#aaaaaa" }] },
         { type: "separator" },
-        
         { type: "text", text: "📥 RECENT EARNS", weight: "bold", size: "xs", color: "#00b900" },
-        { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({
-          type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by ? e.used_by.substring(0,6) : '-'} | +${e.point_get}p (${e.scan_amount || 0}฿) | ${formatTime(e.used_at)}`, size: "xxs", color: "#333333"
-        })) : [{ type: "text", text: "-", size: "xxs" }] },
-        
+        { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({ type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by ? e.used_by.substring(0,6) : '-'} | +${e.point_get}p (${e.scan_amount || 0}฿) | ${formatTime(e.used_at)}`, size: "xxs", color: "#333333" })) : [{ type: "text", text: "-", size: "xxs" }] },
         { type: "separator" },
-        
         { type: "text", text: "📤 RECENT REDEEMS", weight: "bold", size: "xs", color: "#ff9f00" },
-        { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({
-          type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().substring(0,6) || '?'} | -${u.points_redeemed}p | ${formatTime(u.created_at)}`, size: "xxs", color: "#333333"
-        })) : [{ type: "text", text: "-", size: "xxs" }] }
+        { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({ type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().substring(0,6) || '?'} | -${u.points_redeemed}p | ${formatTime(u.created_at)}`, size: "xxs", color: "#333333" })) : [{ type: "text", text: "-", size: "xxs" }] }
       ]}
     };
     await sendFlex(replyToken, "Activity Report", flex);
@@ -298,7 +316,6 @@ async function listCombinedReport(replyToken) {
 /* ============================================================
    5. MESSAGE SENDER
 ============================================================ */
-
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendFlex(rt, altText, contents) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }

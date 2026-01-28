@@ -8,13 +8,25 @@
     <style>
         body { font-family: sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 20px; }
         .card { background: white; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; padding: 25px; text-align: center; }
-        .balance-box { background: #00b900; color: white; border-radius: 12px; padding: 15px; margin-bottom: 20px; }
+        .balance-box { background: #00b900; color: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; } /* ปรับ margin ลดลงนิดนึงคะ */
         .balance-box span { font-size: 24px; font-weight: bold; }
+        
+        /* ✨ ส่วนที่เพิ่มใหม่: CSS สำหรับแจ้งอัตราแลกเปลี่ยน */
+        .rate-info { 
+            font-size: 14px; 
+            color: #666; 
+            margin-bottom: 20px; 
+            font-weight: 500;
+            background: #e8f5e9;
+            padding: 5px 10px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+
         .grid-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         .btn-price { background: #fff; border: 2px solid #00b900; color: #00b900; border-radius: 12px; padding: 12px 2px; font-size: 18px; font-weight: bold; cursor: pointer; transition: all 0.2; }
         .btn-price:active { background: #00b900; color: #fff; }
 
-        /* ส่วนกรอกเอง */
         .input-manual { grid-column: span 2; padding: 12px; border: 2px solid #00b900; border-radius: 12px; font-size: 18px; text-align: center; outline: none; }
         .btn-confirm { grid-column: span 1; background: #00b900; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; }
     </style>
@@ -23,6 +35,8 @@
 <div class="card">
     <h3>Ninety Wash</h3>
     <div class="balance-box">ยอดแต้มปัจจุบัน : <span id="userPoints">...</span></div>
+    
+    <div class="rate-info">💡 อัตราการแลก: 1 แต้ม = 1 บาท</div>
     
     <div class="grid-container">
         <input type="number" id="customInput" class="input-manual" placeholder="ระบุแต้มเอง">
@@ -42,7 +56,6 @@
 
 <script>
     let userId = "";
-    // ✨ ระบุ URL ของ Railway ของเปรมที่นี่ (เช็กให้ตรงกับที่ใช้ใน Line Developer นะคะ)
     const SERVER_URL = "https://90-production.up.railway.app"; 
 
     async function main() {
@@ -54,11 +67,8 @@
             userId = profile.userId;
             
             try {
-                // ✨ เปลี่ยนจาก /api/... เป็น URL เต็ม เพื่อกันบัคหาไฟล์ไม่เจอ
                 const res = await fetch(`${SERVER_URL}/api/get-user-points?userId=${userId}`);
                 const data = await res.json();
-                
-                // เช็กว่ามีข้อมูล points กลับมาไหม ถ้าไม่มีให้เป็น 0
                 const currentPoints = (data && data.points !== undefined) ? data.points : 0;
                 document.getElementById('userPoints').innerText = currentPoints;
             } catch (err) {
@@ -74,7 +84,6 @@
             return;
         }
 
-        // 🛡️ เช็กยอดแต้มปัจจุบันก่อนสแกน
         const currentPoints = parseInt(document.getElementById('userPoints').innerText) || 0;
         if (currentPoints < amount) {
             alert(`❌ แต้มไม่พอค่ะ!\nคุณมี ${currentPoints} แต้ม แต่ต้องการใช้ ${amount} แต้ม`);
@@ -92,7 +101,6 @@
                     machineId = machineId.split('/').pop().split('?')[0];
                 }
 
-                // ✨ ส่งไปที่ URL เต็มของ Server
                 const response = await fetch(`${SERVER_URL}/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
                 const text = await response.text();
                 if (text.includes("SUCCESS")) { 
