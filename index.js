@@ -112,18 +112,28 @@ app.post("/webhook", async (req, res) => {
             console.log(`📝 บันทึกคำขอใหม่: User ${userId} ขอ ${pts} แต้ม`);
         }
         // 3️⃣ ส่วนแอดมินอนุมัติ (OK / โอเค)
+                // --- 🅰️ ส่วนแอดมินอนุมัติ (OK / โอเค) ---
         else if ((userMsg === "OK" || userMsg === "โอเค") && ADMIN_IDS.includes(userId)) {
-            const oneMinAgo = new Date(Date.now() - 60000).toISOString();
-            const { data: reqRecord } = await supabase.from("point_requests")
-                .select("*").gt("request_at", oneMinAgo).order("request_at", { ascending: false }).limit(1).single();
+          // ⏳ ปรับเป็น 24 ชั่วโมง (86,400,000 ms)
+          const oneDayAgo = new Date(Date.now() - 86400000).toISOString();
+          
+          // 🔍 ค้นหาคำขอที่เก่าที่สุดที่ยังไม่ได้อนุมัติ (First In, First Out)
+          const { data: reqRecord } = await supabase.from("point_requests")
+            .select("*")
+            .gt("request_at", oneDayAgo)
+            .order("request_at", { ascending: true }) // <--- เปลี่ยนจาก false เป็น true เพื่อเรียงตามคิว
+            .limit(1)
+            .single();
 
-            if (reqRecord) {
-                await addPointToUser(reqRecord.line_user_id, reqRecord.points, event.replyToken);
-                await supabase.from("point_requests").delete().eq("id", reqRecord.id);
-            } else {
-                await sendReply(event.replyToken, `❌ ไม่พบรายการที่ค้างอยู่ค่ะ`);
-            }
+          if (reqRecord) {
+            await addPointToUser(reqRecord.line_user_id, reqRecord.points, event.replyToken);
+            // ลบรายการนี้ทิ้งหลังอนุมัติเสร็จ เพื่อให้ OK ครั้งหน้าไปดึงรายการถัดไปมาทำ
+            await supabase.from("point_requests").delete().eq("id", reqRecord.id);
+          } else {
+            await sendReply(event.replyToken, `❌ ไม่พบรายการคำขอแต้มภายใน 24 ชม. นี้ค่ะ`);
+          }
         }
+
         // 4️⃣ ระบบที่ต้องเป็นสมาชิกก่อน (CHECK, REDEEM, REFUND)
         else {
             const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();

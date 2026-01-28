@@ -44,7 +44,6 @@
     let userId = "";
 
     async function main() {
-        // ✅ ใช้ LIFF ID ตัวเดิมที่เปรมยืนยันว่าเวิร์กค่ะ
         await liff.init({ liffId: "2008944819-N4ozrStq" }); 
         if (!liff.isLoggedIn()) { 
             liff.login(); 
@@ -52,7 +51,6 @@
             const profile = await liff.getProfile();
             userId = profile.userId;
             
-            // ✅ ใช้ท่อเดิม /api/get-user-points
             try {
                 const res = await fetch(`/api/get-user-points?userId=${userId}`);
                 const data = await res.json();
@@ -70,11 +68,21 @@
         }
 
         try {
-            // ✅ ใช้คำสั่งสแกนตัวเดิม
+            // 📸 1. เปิดกล้องสแกน QR
             const result = await liff.scanCode(); 
-            const machineId = result.value;
+            let machineId = result.value;
             
             if (machineId) {
+                // ✂️ 2. ตัดแต่งชื่อเครื่องให้สวยงาม (ลบ URL ออก)
+                if (machineId.includes("machine_id=")) {
+                    // ดึงค่าหลัง machine_id= และตัดค่าอื่นหลัง & ออกถ้ามี
+                    machineId = machineId.split("machine_id=")[1].split("&")[0];
+                } else if (machineId.startsWith("http")) {
+                    // กรณีเป็นลิงก์แบบอื่น ให้เอาคำสุดท้ายหลัง / มาโชว์
+                    machineId = machineId.split('/').pop().split('?')[0];
+                }
+
+                // 🚀 3. ส่งข้อมูลไปที่ Server
                 const response = await fetch(`/liff/redeem-execute?userId=${userId}&amount=${amount}&machine_id=${machineId}`);
                 const text = await response.text();
                 if (text.includes("SUCCESS")) { 
