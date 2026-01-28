@@ -13,7 +13,7 @@ const supabase = createClient(process.env.SUPABASE_URL || "", process.env.SUPABA
 let adminWaitList = new Set(); 
 
 /* ====================================
-   1. POINT & REDEEM SYSTEM (LIFF API)
+   1. POINT & REDEEM SYSTEM
 ==================================== */
 app.get("/liff/consume", async (req, res) => {
   try {
@@ -47,7 +47,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
 });
 
 /* ====================================
-   2. WEBHOOK (GOD MODE DASHBOARD)
+   2. WEBHOOK (ADMIN COMMANDS)
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -88,15 +88,15 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ====================================
-   3. UI COMPONENTS (PROFESSIONAL LOOK)
+   3. UI COMPONENTS (FIXED & IMPROVED)
 ==================================== */
 async function sendAdminDashboard(replyToken) {
-  const flex = { type: "flex", altText: "Dashboard", contents: { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }] } } };
+  const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }] } };
   await sendFlex(replyToken, flex);
 }
 
 async function sendManageAdminFlex(replyToken) {
-  const flex = { type: "flex", altText: "Manage", contents: { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } } };
+  const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } };
   await sendFlex(replyToken, flex);
 }
 
@@ -109,24 +109,21 @@ async function listAdminsWithDelete(replyToken) {
       !isOnlyOne ? { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } } : { type: "text", text: "👑 (Last)", size: "xxs", color: "#aaaaaa", gravity: "center", align: "end", flex: 2 }
     ]
   }));
-  await sendFlex(replyToken, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
+  await sendFlex(replyToken, { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
 }
 
 async function listCombinedReport(replyToken) {
   try {
-    // ดึงข้อมูล 3 ส่วนหลัก (กรองตามฟิลด์เวลาที่เปรมแจ้ง)
     const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
     const { data: earns } = await supabase.from("qrPointToken").select("*").limit(5).order("used_at", { ascending: false });
     const { data: redeems } = await supabase.from("redeemlogs").select("*").limit(5).order("created_at", { ascending: false });
 
     const formatTime = (isoStr) => isoStr ? new Date(isoStr).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
 
-    await sendFlex(replyToken, "Activity Report", {
+    const flex = {
       type: "bubble",
       body: { type: "box", layout: "vertical", spacing: "md", contents: [
         { type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" },
-        
-        // 1. ส่วนงานค้าง (Pending Requests)
         { type: "text", text: "🔔 PENDING (งานค้าง)", weight: "bold", size: "xs", color: "#ff4b4b" },
         { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({
           type: "box", layout: "horizontal", margin: "xs", contents: [
@@ -134,29 +131,21 @@ async function listCombinedReport(replyToken) {
             { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
           ]
         })) : [{ type: "text", text: "ไม่พบรายการค้าง", size: "xxs", color: "#aaaaaa" }] },
-        
         { type: "separator" },
-
-        // 2. ส่วนรับแต้มล่าสุด (Recent Earns) -> [เครื่อง] | [User 5 ตัวแรก] | [แต้ม] | [เวลา]
         { type: "text", text: "📥 RECENT EARNS (รับแต้ม)", weight: "bold", size: "xs", color: "#00b900" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({
-          type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by?.substring(0,5)} | +${e.point_get} pts | ${formatTime(e.used_at || e.create_at)}`, size: "xxs", color: "#333333"
+          type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by?.substring(0,5)} | +${e.point_get} pts | ${formatTime(e.used_at || e.create_at)}`, size: "xxs"
         })) : [{ type: "text", text: "ไม่มีประวัติ", size: "xxs" }] },
-
         { type: "separator" },
-
-        // 3. ส่วนแลกแต้มล่าสุด (Recent Redeems) -> [เครื่อง] | [User 5 ตัวแรก] | [แต้ม] | [เวลา]
         { type: "text", text: "📤 RECENT REDEEMS (แลกแต้ม)", weight: "bold", size: "xs", color: "#ff9f00" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({
-          type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().substring(0,5)} | -${u.points_redeemed} pts | ${formatTime(u.created_at)}`, size: "xxs", color: "#333333"
+          type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().substring(0,5)} | -${u.points_redeemed} pts | ${formatTime(u.created_at)}`, size: "xxs"
         })) : [{ type: "text", text: "ไม่มีประวัติ", size: "xxs" }] }
       ]}
-    });
-  } catch (e) {
-    await sendReply(replyToken, "❌ ดึงรายงานไม่สำเร็จ: " + e.message);
-  }
+    };
+    await sendFlex(replyToken, flex);
+  } catch (e) { await sendReply(replyToken, "❌ Error: " + e.message); }
 }
-
 
 /* ====================================
    4. LOGIC HELPERS
@@ -193,7 +182,7 @@ async function approveSpecificPoint(rid, rt) {
 
 async function getCustomerReport(targetUid, rt, adminId) {
   const { data: earns } = await supabase.from("qrPointToken").select("*").eq("used_by", targetUid).limit(5).order("used_at", { ascending: false });
-  const flex = { type: "flex", altText: "Report", contents: { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "📊 ประวัติการใช้งาน", weight: "bold", size: "lg" }, ...earns.map(e => ({ type: "text", text: `${new Date(e.used_at || e.create_at).toLocaleDateString()} | +${e.point_get} pts`, size: "xs" }))] }, footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#00b900", action: { type: "uri", label: "ดาวน์โหลด PDF", uri: `https://${process.env.RAILWAY_STATIC_URL}/api/report-pdf?userId=${targetUid}&adminId=${adminId}` } }] } } };
+  const flex = { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "📊 ประวัติการใช้งาน", weight: "bold", size: "lg" }, ...earns.map(e => ({ type: "text", text: `${new Date(e.used_at || e.create_at).toLocaleDateString()} | +${e.point_get} pts`, size: "xs" }))] }, footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#00b900", action: { type: "uri", label: "ดาวน์โหลด PDF", uri: `https://${process.env.RAILWAY_STATIC_URL}/api/report-pdf?userId=${targetUid}&adminId=${adminId}` } }] } };
   await sendFlex(rt, flex);
 }
 
@@ -209,7 +198,12 @@ async function handleRefund(memberId, rt) {
 
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-async function sendFlex(rt, flex) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [flex.type === "flex" ? flex : { type: "flex", altText: "Flex", contents: flex }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
+async function sendFlex(rt, flexContents) { 
+  await axios.post("https://api.line.me/v2/bot/message/reply", { 
+    replyToken: rt, 
+    messages: [{ type: "flex", altText: "God Mode Interface", contents: flexContents }] 
+  }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
+}
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
