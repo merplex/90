@@ -16,6 +16,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ""
 );
 
+// --- [แทรก] ตัวแปรเก็บรูปภาพชั่วคราว ---
+let lastImageId = null;
+
 /* ====================================
    1. POINT SYSTEM API
 ==================================== */
@@ -100,10 +103,17 @@ app.post("/webhook", async (req, res) => {
   const events = req.body.events;
   for (let event of events) {
     const userId = event.source.userId;
+    const isUserAdmin = await isAdmin(userId);
+
+    // --- [แทรก] ส่วนรับรูปภาพจากไลน์ ---
+    if (event.type === "message" && event.message.type === "image" && isUserAdmin) {
+        lastImageId = event.message.id;
+        return await sendReply(event.replyToken, "📷 รับรูปเมนูแล้ว! ถ้าจะใช้รูปนี้ พิมพ์: SET_ADMIN_IMAGE");
+    }
+
     if (event.type === "message" && event.message.type === "text") {
       const rawMsg = event.message.text.trim();
       const userMsg = rawMsg.toUpperCase();
-      const isUserAdmin = await isAdmin(userId);
 
       try {
         if (userMsg === "USER_LINE") {
@@ -111,8 +121,15 @@ app.post("/webhook", async (req, res) => {
         }
 
         if (isUserAdmin) {
+            // --- [แทรก] คำสั่งอัปโหลดรูปผ่านไลน์ ---
+            if (userMsg === "SET_ADMIN_IMAGE") {
+                if (!lastImageId) return await sendReply(event.replyToken, "❌ กรุณาส่งรูปภาพมาก่อนค่ะ");
+                await uploadMenuImage(lastImageId, process.env.ADMIN_RICHMENU_ID, event.replyToken);
+                lastImageId = null; 
+                return;
+            }
             // --- 🛠 หมวดสลับ Rich Menu ---
-            if (userMsg === "SWITCH_TO_ADMIN") {
+            else if (userMsg === "SWITCH_TO_ADMIN") {
                 try {
                     await linkRichMenu(userId, process.env.ADMIN_RICHMENU_ID, event.replyToken);
                     return await sendReply(event.replyToken, "🔓 เข้าสู่โหมดแอดมินสำเร็จ!");
@@ -157,13 +174,13 @@ app.post("/webhook", async (req, res) => {
             else if (userMsg === "CREATE_ADMIN_MENU") {
                 try {
                     const richMenuObj = {
-                        size: { width: 2500, height: 1686 }, selected: false,
+                        size: { width: 2500, height: 843 }, selected: false,
                         name: "Admin God Mode", chatBarText: "เมนูแอดมิน 🔓",
                         areas: [
+                            // แบ่ง 3 ช่องเท่ากัน ช่องละ 833px สูง 843px
                             { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "message", text: "RECENT_REPORTS" } },
                             { bounds: { x: 833, y: 0, width: 833, height: 843 }, action: { type: "message", text: "OK" } },
-                            { bounds: { x: 1666, y: 0, width: 834, height: 843 }, action: { type: "message", text: "LIST_ADMIN" } },
-                            { bounds: { x: 0, y: 843, width: 2500, height: 843 }, action: { type: "message", text: "SWITCH_TO_USER" } }
+                            { bounds: { x: 1666, y: 0, width: 834, height: 843 }, action: { type: "message", text: "SWITCH_TO_USER" } }
                         ]
                     };
                     const res = await axios.post("https://api.line.me/v2/bot/richmenu", richMenuObj, {
@@ -201,6 +218,25 @@ app.post("/webhook", async (req, res) => {
 async function isAdmin(uid) {
     const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).single();
     return !!data;
+}
+
+// [แทรก] ฟังก์ชันอัปโหลดรูปภาพผ่านไลน์
+async function uploadMenuImage(messageId, richMenuId, replyToken) {
+    try {
+        const response = await axios.get(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+            headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` },
+            responseType: 'arraybuffer'
+        });
+        await axios.post(`https://api.line.me/v2/bot/richmenu/${richMenuId}/content`, response.data, {
+            headers: { 
+                'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+                'Content-Type': 'image/png' 
+            }
+        });
+        await sendReply(replyToken, "🎨 อัปโหลดรูปภาพสำเร็จแล้ว! ลองกด SWITCH_TO_ADMIN ได้เลยค่ะ");
+    } catch (e) {
+        await sendReply(replyToken, "❌ อัปโหลดรูปไม่สำเร็จ: " + (e.response?.data?.message || e.message));
+    }
 }
 
 // สลับเมนูพร้อม Debug
