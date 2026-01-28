@@ -94,35 +94,37 @@ app.post("/webhook", async (req, res) => {
       const rawMsg = event.message.text.trim();
       const userMsg = rawMsg.toUpperCase(); 
 
-      try {
-        // ✨ Regex ใหม่: ดึงตัวเลขจากคำว่า "แต้ม" ได้จากทุกประโยค
+            try {
         const pointMatch = rawMsg.match(/(\d+)\s*แต้ม/);
 
-        // --- 🟢 ระบบคุยธรรมชาติ (ขอแต้ม) ---
+        // 1️⃣ คำสั่งที่ทุกคนใช้ได้ (ไม่ต้องเช็กว่าเป็นสมาชิกไหม)
+        if (userMsg === "USER_LINE") {
+            await sendReply(event.replyToken, `รหัส User ID ของคุณคือ:\n${userId}`);
+            return; 
+        }
+
+        // 2️⃣ ระบบคุยธรรมชาติ (ขอแต้ม)
         if (pointMatch && !ADMIN_IDS.includes(userId)) { 
-          const pts = parseInt(pointMatch[1]);
-          if (pts > 0) {
-            // บันทึกทุกครั้ง ไม่ต้องลบของเก่า ป้องกันบั๊กตามที่เปรมบอกค่ะ
+            const pts = parseInt(pointMatch[1]);
             await supabase.from("point_requests").insert({ 
-              line_user_id: userId, points: pts, request_at: new Date().toISOString() 
+                line_user_id: userId, points: pts, request_at: new Date().toISOString() 
             });
             console.log(`📝 บันทึกคำขอใหม่: User ${userId} ขอ ${pts} แต้ม`);
-          }
         }
-        // --- 🅰️ ส่วนแอดมินอนุมัติ (OK / โอเค) ---
+        // 3️⃣ ส่วนแอดมินอนุมัติ (OK / โอเค)
         else if ((userMsg === "OK" || userMsg === "โอเค") && ADMIN_IDS.includes(userId)) {
-          const oneMinAgo = new Date(Date.now() - 60000).toISOString();
-          const { data: reqRecord } = await supabase.from("point_requests")
-            .select("*").gt("request_at", oneMinAgo).order("request_at", { ascending: false }).limit(1).single();
+            const oneMinAgo = new Date(Date.now() - 60000).toISOString();
+            const { data: reqRecord } = await supabase.from("point_requests")
+                .select("*").gt("request_at", oneMinAgo).order("request_at", { ascending: false }).limit(1).single();
 
-          if (reqRecord) {
-            await addPointToUser(reqRecord.line_user_id, reqRecord.points, event.replyToken);
-            await supabase.from("point_requests").delete().eq("id", reqRecord.id);
-          } else {
-            await sendReply(event.replyToken, `❌ ไม่พบรายการที่ค้างอยู่ค่ะ\n(รายการล่าสุดอาจจะทำงานสำเร็จไปแล้ว หรือยังไม่มีการหักแต้มเข้ามา)`);
-          }
+            if (reqRecord) {
+                await addPointToUser(reqRecord.line_user_id, reqRecord.points, event.replyToken);
+                await supabase.from("point_requests").delete().eq("id", reqRecord.id);
+            } else {
+                await sendReply(event.replyToken, `❌ ไม่พบรายการที่ค้างอยู่ค่ะ`);
+            }
         }
-        // --- 🔵 ระบบเดิม ---
+        // 4️⃣ ระบบที่ต้องเป็นสมาชิกก่อน (CHECK, REDEEM, REFUND)
         else {
             const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
             if (member) {
@@ -133,34 +135,16 @@ app.post("/webhook", async (req, res) => {
                 else if (userMsg.startsWith("REDEEM_")) {
                     const amt = parseInt(userMsg.split("_")[1]);
                     const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
-                    if ((w?.point_balance || 0) < amt) await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ (มี ${w?.point_balance || 0} ใช้ ${amt})`);
+                    if ((w?.point_balance || 0) < amt) await sendReply(event.replyToken, `❌ แต้มไม่พอค่ะ`);
                     else await sendScanRequest(event.replyToken, amt);
                 }
                 else if (userMsg === "REFUND") {
                     await handleRefund(member.id, event.replyToken);
                 }
-                // ในส่วนของ Webhook ที่เปรมเช็กข้อความตัวอักษร
-                else if (event.type === "message" && event.message.type === "text") {
-                    const userMsg = event.message.text.trim().toUpperCase(); // แปลงเป็นตัวใหญ่เพื่อให้พิมพ์เล็กพิมพ์ใหญ่ก็ได้หมดค่ะ
-                    const userId = event.source.userId; // นี่คือค่าที่เราต้องการค่ะ
-
-                    try {
-                        // ✨ เพิ่มคำสั่งนี้ลงไปค่ะ
-                        if (userMsg === "USER_LINE") {
-                            await sendReply(event.replyToken, `รหัส User ID ของคุณคือ:\n${userId}`);
-                            return; // จบงานตรงนี้ ไม่ต้องไปเช็กเงื่อนไขอื่นต่อค่ะ
-                        }
-
-                        // ... เงื่อนไขอื่นๆ ของเปรม (เช่น CHECK_POINT, REDEEM) ...
-
-                    } catch (e) {
-                        console.error("Error in USER_LINE command:", e);
-                    }
-                }
-
             }
         }
       } catch (e) { console.error(e.message); }
+
     }
   }
   res.sendStatus(200);
