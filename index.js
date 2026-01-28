@@ -191,6 +191,24 @@ app.post("/webhook", async (req, res) => {
                     return await sendReply(event.replyToken, "❌ สร้างไม่ได้: " + (e.response?.data?.message || e.message));
                 }
             }
+            // --- [แทรก] คำสั่งลบเมนูแอดมินทั้งหมด ---
+            else if (userMsg === "DELETE_ALL_ADMIN_MENUS") {
+                try {
+                    const resMenu = await axios.get("https://api.line.me/v2/bot/richmenu/list", {
+                        headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+                    });
+                    const menus = resMenu.data.richmenus;
+                    if (menus.length === 0) return await sendReply(event.replyToken, "📭 ไม่มีเมนูให้ลบแล้วค่ะ");
+                    for (const m of menus) {
+                        await axios.delete(`https://api.line.me/v2/bot/richmenu/${m.richMenuId}`, {
+                            headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+                        });
+                    }
+                    return await sendReply(event.replyToken, `🗑️ ลบเมนูแอดมินทั้งหมดเรียบร้อยแล้ว (${menus.length} รายการ)`);
+                } catch (e) {
+                    return await sendReply(event.replyToken, "❌ ลบไม่สำเร็จ: " + (e.response?.data?.message || e.message));
+                }
+            }
             else if (userMsg === "LIST_ADMIN") {
                 const { data: admins } = await supabase.from("bot_admins").select("*");
                 return await sendReply(event.replyToken, `🔐 แอดมิน: \n${admins.map(a => `- ${a.admin_name} (${a.line_user_id.substring(0,6)})`).join('\n')}`);
