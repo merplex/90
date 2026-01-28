@@ -131,19 +131,37 @@ app.post("/webhook", async (req, res) => {
 
         // --- 🔐 ฟังก์ชันเฉพาะ ADMIN ---
         if (isUserAdmin) {
-            // ดูรายงาน (USAGE [ID])
-            if (userMsg.startsWith("USAGE ")) {
+            // 1. สลับร่าง
+            if (userMsg === "SWITCH_TO_ADMIN") {
+                await linkRichMenu(userId, process.env.ADMIN_RICHMENU_ID);
+                return await sendReply(event.replyToken, "🔓 เข้าสู่โหมดแอดมิน");
+            }
+            else if (userMsg === "SWITCH_TO_USER") {
+                await linkRichMenu(userId, process.env.USER_RICHMENU_ID);
+                return await sendReply(event.replyToken, "👤 กลับสู่โหมดลูกค้า");
+            }
+            // 2. ตั้งค่า Default
+            else if (userMsg === "SET_USER_DEFAULT") {
+                try {
+                    await axios.post(`https://api.line.me/v2/bot/user/all/richmenu/${process.env.USER_RICHMENU_ID}`, {}, {
+                        headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+                    });
+                    return await sendReply(event.replyToken, "🌍 ตั้งเมนูลูกค้าเป็นค่าเริ่มต้นให้ทุกคนแล้วค่ะ!");
+                } catch (e) {
+                    return await sendReply(event.replyToken, "❌ ตั้งค่าไม่สำเร็จ: " + e.message);
+                }
+            }
+            // 3. จัดการข้อมูลลูกค้า
+            else if (userMsg.startsWith("USAGE ")) {
                 return await getCustomerReport(rawMsg.split(" ")[1], event.replyToken, userId);
             }
-            // ดู 5 รายชื่อล่าสุด
             else if (userMsg === "RECENT_REPORTS") {
                 return await listRecentUsers(event.replyToken);
             }
-            // อนุมัติแต้ม (OK) - รองรับ 24 ชม.
             else if (userMsg === "OK" || userMsg === "โอเค") {
                 return await approvePoint(event.replyToken);
             }
-            // จัดการ Admin
+            // 4. จัดการ Admin
             else if (userMsg === "LIST_ADMIN") {
                 const { data: admins } = await supabase.from("bot_admins").select("*");
                 return await sendReply(event.replyToken, `🔐 แอดมิน: \n${admins.map(a => `- ${a.admin_name} (${a.line_user_id.substring(0,6)})`).join('\n')}`);
@@ -152,25 +170,17 @@ app.post("/webhook", async (req, res) => {
                 await supabase.from("bot_admins").insert({ line_user_id: rawMsg.split(" ")[1], admin_name: "New Admin" });
                 return await sendReply(event.replyToken, "✅ เพิ่มแอดมินแล้ว");
             }
-            // ✨ ฟังก์ชันลับ: สลับเมนู
-            else if (userMsg === "SWITCH_TO_USER") {
-                await linkRichMenu(userId, process.env.USER_RICHMENU_ID);
-                return await sendReply(event.replyToken, "โหมดลูกค้า 👤");
+            // 5. จัดการ Rich Menu (หาไอดี และ สร้างใหม่)
+            else if (userMsg === "GET_MENU_ID") {
+                const resMenu = await axios.get("https://api.line.me/v2/bot/richmenu/list", {
+                    headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }
+                });
+                const menus = resMenu.data.richmenus;
+                let msg = "📋 รายชื่อ Rich Menu ID:\n\n";
+                menus.forEach((m, i) => msg += `${i+1}. ${m.chatBarText}\nID: ${m.richMenuId}\n---\n`);
+                return await sendReply(event.replyToken, menus.length > 0 ? msg : "📭 ไม่พบเมนูค่ะ");
             }
-            else if (userMsg === "SWITCH_TO_ADMIN") {
-                await linkRichMenu(userId, process.env.ADMIN_RICHMENU_ID);
-                return await sendReply(event.replyToken, "โหมดแอดมิน 🔓");
-            }
-            // --- คำสั่งลับเรียกดูรายการ ID เมนูทั้งหมด ---
-            // ... (คำสั่งแอดมินอื่น ๆ เช่น USAGE, OK, LIST_ADMIN) ...
-
-            // --- คำสั่งลับเรียกดูรายการ ID เมนูทั้งหมด ---
-            else if (userMsg === "GET_MENU_ID" && isUserAdmin) {
-                // ... (โค้ดดึงไอดีเดิมของเปรม) ...
-            }
-
-            // ✨ วางคำสั่งใหม่ตรงนี้เลยค่ะเปรม! ✨
-            else if (userMsg === "CREATE_ADMIN_MENU" && isUserAdmin) {
+            else if (userMsg === "CREATE_ADMIN_MENU") {
                 try {
                     const richMenuObj = {
                         size: { width: 2500, height: 1686 },
@@ -184,14 +194,12 @@ app.post("/webhook", async (req, res) => {
                             { bounds: { x: 0, y: 843, width: 2500, height: 843 }, action: { type: "message", text: "SWITCH_TO_USER" } }
                         ]
                     };
-
                     const res = await axios.post("https://api.line.me/v2/bot/richmenu", richMenuObj, {
                         headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`, 'Content-Type': 'application/json' }
                     });
-
-                    await sendReply(event.replyToken, `✅ สร้างสำเร็จ!\nID: ${res.data.richMenuId}\n\n⚠️ ก๊อป ID นี้ไปใส่ใน Railway ADMIN_RICHMENU_ID นะคะ!`);
+                    return await sendReply(event.replyToken, `✅ สร้างสำเร็จ!\nID: ${res.data.richMenuId}\n\n⚠️ ก๊อป ID นี้ไปใส่ใน Railway ADMIN_RICHMENU_ID นะคะ!`);
                 } catch (e) {
-                    await sendReply(event.replyToken, "❌ สร้างไม่ได้: " + (e.response?.data?.message || e.message));
+                    return await sendReply(event.replyToken, "❌ สร้างไม่ได้: " + (e.response?.data?.message || e.message));
                 }
             }
         }
@@ -211,6 +219,7 @@ app.post("/webhook", async (req, res) => {
   }
   res.sendStatus(200);
 });
+
 
 /* ====================================
    5. HELPER FUNCTIONS (ฟังก์ชันเสริมความโหด)
