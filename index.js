@@ -1,4 +1,5 @@
 require("dotenv").config();
+const crypto = require("crypto"); // ต้องใช้สำหรับสร้าง Token
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -11,10 +12,48 @@ const supabase = createClient(process.env.SUPABASE_URL || "", process.env.SUPABA
 let adminWaitList = new Set(); 
 
 /* ====================================
-   1. API สำหรับ LIFF (สำคัญมาก: ห้ามลบ)
+   1. HMI API (สำหรับตู้ซักผ้า) -> สร้าง QR
 ==================================== */
+app.post("/create-qr", async (req, res) => {
+    try {
+        const { amount, machine_id } = req.body;
+        
+        // คำนวณแต้ม (ตัวอย่าง: 10 บาท ได้ 1 แต้ม)
+        // ถ้าอยากได้สูตรอื่น แก้ตรงนี้ได้เลยค่ะ
+        const point_get = Math.floor(amount / 10); 
+        const token = crypto.randomUUID();
 
-// ✅ [เพิ่มกลับมาแล้ว] API ดึงยอดแต้มปัจจุบัน (แก้ปัญหาแต้มเป็น 0)
+        // บันทึกลงฐานข้อมูล
+        const { error } = await supabase.from("qrPointToken").insert({
+            qr_token: token,
+            point_get: point_get,
+            machine_id: machine_id,
+            is_used: false
+        });
+
+        if (error) throw error;
+
+        // สร้าง Link สำหรับ QR Code
+        // (HMI จะเอา url นี้ไปแปลงเป็น QR Code ให้ลูกค้าสแกน)
+        const liffUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
+        
+        res.json({ 
+            success: true, 
+            qr_url: liffUrl, 
+            points: point_get,
+            token: token 
+        });
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+/* ====================================
+   2. LIFF API (ฝั่งลูกค้าสแกน/แลกแต้ม)
+==================================== */
+// API ดึงยอดแต้ม (แก้ปัญหาแต้ม 0)
 app.get("/api/get-user-points", async (req, res) => {
     const { userId } = req.query;
     try {
@@ -22,9 +61,7 @@ app.get("/api/get-user-points", async (req, res) => {
         if (!m) return res.json({ points: 0 });
         const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", m.id).single();
         res.json({ points: w?.point_balance || 0 });
-    } catch (e) { 
-        res.status(500).json({ points: 0 }); 
-    }
+    } catch (e) { res.status(500).json({ points: 0 }); }
 });
 
 app.get("/liff/consume", async (req, res) => {
@@ -33,7 +70,6 @@ app.get("/liff/consume", async (req, res) => {
     const { data: qrData } = await supabase.from("qrPointToken").select("*").eq("qr_token", token).single();
     if (!qrData || qrData.is_used) return res.status(400).send("QR Invalid");
     
-    // บันทึก used_by เป็น userId ที่สแกน
     await supabase.from("qrPointToken").update({ is_used: true, used_by: userId, used_at: new Date().toISOString() }).eq("qr_token", token);
     
     let { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
@@ -66,7 +102,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
 });
 
 /* ====================================
-   2. WEBHOOK & GOD MODE DASHBOARD
+   3. WEBHOOK (ADMIN GOD MODE)
 ==================================== */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -86,26 +122,22 @@ app.post("/webhook", async (req, res) => {
           return await addNewAdmin(rawMsg, event.replyToken);
         }
         
-        // --- ⚡ ADMIN COMMANDS ---
         if (userMsg === "ADMIN") return await sendAdminDashboard(event.replyToken);
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
         if (userMsg === "REPORT") return await listCombinedReport(event.replyToken);
         if (userMsg === "LIST_ADMIN") return await listAdminsWithDelete(event.replyToken);
         if (userMsg === "ADD_ADMIN_STEP1") { 
             adminWaitList.add(userId); 
-            return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อมาได้เลยค่ะ (เช่น: U123... Boss เปรม)"); 
+            return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อมาได้เลยค่ะ"); 
         }
         if (userMsg.startsWith("DEL_ADMIN_ID ")) return await deleteAdmin(rawMsg.split(" ")[1], event.replyToken);
         if (userMsg.startsWith("APPROVE_ID ")) return await approveSpecificPoint(rawMsg.split(" ")[1], event.replyToken);
       }
       
-      // --- 👤 USER COMMANDS ---
       const { data: member } = await supabase.from("ninetyMember").select("id").eq("line_user_id", userId).single();
-      if (member) {
-        if (userMsg === "CHECK_POINT") {
+      if (member && userMsg === "CHECK_POINT") {
           const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member.id).single();
           await sendReply(event.replyToken, `🌟 ยอดแต้มของคุณ: ${w?.point_balance || 0} แต้ม`);
-        }
       }
     } catch (e) { console.error(e.message); }
   }
@@ -113,10 +145,8 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ====================================
-   3. UI COMPONENTS (GOD MODE STYLE)
+   4. UI COMPONENTS (DASHBOARD)
 ==================================== */
-
-// Dashboard หน้าหลัก (สีดำ-เขียว ดูโปร)
 async function sendAdminDashboard(replyToken) {
   const flex = { 
       type: "bubble", 
@@ -129,7 +159,6 @@ async function sendAdminDashboard(replyToken) {
   await sendFlex(replyToken, "God Mode", flex);
 }
 
-// หน้าจัดการแอดมิน
 async function sendManageAdminFlex(replyToken) {
   const flex = { 
       type: "bubble", 
@@ -142,28 +171,24 @@ async function sendManageAdminFlex(replyToken) {
   await sendFlex(replyToken, "Admin Settings", flex);
 }
 
-// รายชื่อแอดมิน (แก้บัคไม่ขึ้น)
 async function listAdminsWithDelete(replyToken) {
   try {
       const { data: adms } = await supabase.from("bot_admins").select("*");
-      if (!adms || adms.length === 0) return await sendReply(replyToken, "❌ ไม่พบข้อมูลแอดมินในระบบ");
+      if (!adms || adms.length === 0) return await sendReply(replyToken, "❌ ไม่พบข้อมูลแอดมิน");
 
       const isOnlyOne = adms.length <= 1;
       const adminRows = adms.map(a => ({
         type: "box", layout: "horizontal", margin: "sm", contents: [
-          { type: "text", text: `👤 ${a.admin_name || 'No Name'}`, size: "xs", gravity: "center", flex: 3 },
+          { type: "text", text: `👤 ${a.admin_name || 'Admin'}`, size: "xs", gravity: "center", flex: 3 },
           !isOnlyOne 
             ? { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } } 
             : { type: "text", text: "👑 (Last)", size: "xxs", color: "#aaaaaa", gravity: "center", align: "end", flex: 2 }
         ]
       }));
-      
-      const flex = { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } };
-      await sendFlex(replyToken, "Admin List", flex);
-  } catch(e) { await sendReply(replyToken, "❌ Error loading list: " + e.message); }
+      await sendFlex(replyToken, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
+  } catch(e) { await sendReply(replyToken, "❌ Error: " + e.message); }
 }
 
-// รายงานความเคลื่อนไหว (แก้บัค Guest/Undefined)
 async function listCombinedReport(replyToken) {
   try {
     const { data: pending } = await supabase.from("point_requests").select("*").limit(3).order("request_at", { ascending: false });
@@ -177,7 +202,6 @@ async function listCombinedReport(replyToken) {
       body: { type: "box", layout: "vertical", spacing: "md", contents: [
         { type: "text", text: "📊 ACTIVITY REPORT", weight: "bold", color: "#00b900", size: "lg" },
         
-        // PENDING
         { type: "text", text: "🔔 PENDING", weight: "bold", size: "xs", color: "#ff4b4b" },
         { type: "box", layout: "vertical", contents: (pending?.length > 0) ? pending.map(r => ({
           type: "box", layout: "horizontal", margin: "xs", contents: [
@@ -188,16 +212,13 @@ async function listCombinedReport(replyToken) {
         
         { type: "separator" },
         
-        // RECENT EARNS (ใช้ used_by ตรงๆ)
         { type: "text", text: "📥 RECENT EARNS", weight: "bold", size: "xs", color: "#00b900" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (earns?.length > 0) ? earns.map(e => ({
-          // ถ้า used_by ไม่มีค่า (null) ให้โชว์เป็น "-" แทน
           type: "text", text: `• [${e.machine_id || '??'}] | ${e.used_by ? e.used_by.substring(0,5) : '-'} | +${e.point_get} pts | ${formatTime(e.used_at)}`, size: "xxs", color: "#333333"
         })) : [{ type: "text", text: "-", size: "xxs" }] },
         
         { type: "separator" },
         
-        // RECENT REDEEMS
         { type: "text", text: "📤 RECENT REDEEMS", weight: "bold", size: "xs", color: "#ff9f00" },
         { type: "box", layout: "vertical", spacing: "xs", contents: (redeems?.length > 0) ? redeems.map(u => ({
           type: "text", text: `• [${u.machine_id || '??'}] | ${u.member_id?.toString().slice(-4) || '?'} | -${u.points_redeemed} pts | ${formatTime(u.created_at)}`, size: "xxs", color: "#333333"
@@ -209,7 +230,7 @@ async function listCombinedReport(replyToken) {
 }
 
 /* ====================================
-   4. HELPERS
+   5. HELPERS
 ==================================== */
 async function isAdmin(uid) { 
     if(!uid) return false;
@@ -221,7 +242,7 @@ async function addNewAdmin(input, rt) {
   const parts = input.split(/\s+/);
   const tid = parts[0];
   const name = parts.slice(1).join(" ") || "Admin_New";
-  if (!tid.startsWith("U") || tid.length < 30) return await sendReply(rt, "❌ ID ผิดพลาด (ต้องขึ้นต้นด้วย U)");
+  if (!tid.startsWith("U") || tid.length < 30) return await sendReply(rt, "❌ ID ผิดพลาด");
   await supabase.from("bot_admins").upsert({ line_user_id: tid, admin_name: name }, { onConflict: 'line_user_id' });
   await sendReply(rt, `✅ เพิ่มแอดมิน: ${name} สำเร็จ!`);
 }
@@ -242,9 +263,11 @@ async function approveSpecificPoint(rid, rt) {
   await supabase.from("memberWallet").upsert({ member_id: m.id, point_balance: newTotal }, { onConflict: 'member_id' });
   await supabase.from("point_requests").delete().eq("id", req.id);
   await sendReply(rt, `✅ อนุมัติสำเร็จ!`);
+  await sendReplyPush(req.line_user_id, `🎊 แอดมินอนุมัติให้ ${req.points} แต้มแล้วค่ะ`);
 }
 
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
+async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendFlex(rt, altText, contents) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 
 const PORT = process.env.PORT || 8080;
