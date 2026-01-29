@@ -165,16 +165,14 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (ROBUST VERSION)
+   4. INTERACTIVE REPORTS (OPTIMIZED)
 ============================================================ */
 
 const formatTime = (iso) => {
-    try {
-        if (!iso) return "--:--";
-        const date = new Date(iso);
-        if (isNaN(date.getTime())) return "--:--";
-        return date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
-    } catch (e) { return "--:--"; }
+    if (!iso) return "--:--";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "--:--";
+    return d.getHours().toString().padStart(2, '0') + ":" + d.getMinutes().toString().padStart(2, '0');
 };
 
 const createRow = (machine, uid, pts, time, color) => {
@@ -185,7 +183,7 @@ const createRow = (machine, uid, pts, time, color) => {
             { type: "text", text: `[${safeMachine}]`, size: "xxs", flex: 3, color: "#888888" },
             { 
                 type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
-                action: { type: "message", label: "History", text: `GET_HISTORY ${safeUid}` }
+                action: { type: "message", text: `GET_HISTORY ${safeUid}` }
             },
             { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
             { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
@@ -196,7 +194,7 @@ const createRow = (machine, uid, pts, time, color) => {
 async function sendReportMenu(replyToken) {
   const flex = {
     type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 เลือกรายงาน (20 รายการล่าสุด)", color: "#ffffff", weight: "bold", size: "md", align: "center" }] },
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 เลือกรายงาน (15 รายการล่าสุด)", color: "#ffffff", weight: "bold", size: "md", align: "center" }] },
     body: { type: "box", layout: "vertical", spacing: "md", contents: [
         { type: "button", style: "primary", color: "#ff4b4b", action: { type: "message", label: "🔔 Pending Requests", text: "SUB_PENDING" } },
         { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📥 Recent Earns", text: "SUB_EARNS" } },
@@ -210,8 +208,8 @@ async function listSubReport(replyToken, type) {
     try {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
-            title = "🔔 Pending Requests (20)"; color = "#ff4b4b";
-            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(20);
+            title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
+            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(15);
             if (error) throw error;
             rows = (data || []).map(r => ({
                 type: "box", layout: "horizontal", margin: "xs", contents: [
@@ -221,16 +219,17 @@ async function listSubReport(replyToken, type) {
                 ]
             }));
         } else if (type === "EARNS") {
-            title = "📥 Recent Earns (20)"; color = "#00b900";
-            const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(20);
+            title = "📥 Recent Earns (15)"; color = "#00b900";
+            const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             if (error) throw error;
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
-            title = "📤 Recent Redeems (20)"; color = "#ff9f00";
-            const { data: raw, error: err1 } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(20);
+            title = "📤 Recent Redeems (15)"; color = "#ff9f00";
+            const { data: raw, error: err1 } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(15);
             if (err1) throw err1;
             if (raw && raw.length > 0) {
-                const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", raw.map(r => r.member_id));
+                const uids = raw.map(r => r.member_id).filter(id => id);
+                const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
                 if (err2) throw err2;
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
                 rows = raw.map(r => createRow(r.machine_id, memMap[r.member_id], `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
@@ -238,7 +237,7 @@ async function listSubReport(replyToken, type) {
         }
 
         if (rows.length === 0) return await sendReply(replyToken, `ℹ️ ยังไม่มีรายการในหัวข้อ ${title} ค่ะ`);
-        await sendFlex(replyToken, title, { type: "bubble", size: "giga", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "xs", contents: rows } });
+        await sendFlex(replyToken, title, { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "xs", contents: rows } });
     } catch (e) { 
         console.error("SubReport Error:", e);
         await sendReply(replyToken, `❌ Error: ${e.message}`); 
@@ -248,13 +247,13 @@ async function listSubReport(replyToken, type) {
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
-            supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(20),
-            supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(20),
+            supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(15),
+            supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(15),
             supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle()
         ]);
         let redeems = [];
         if (memRes.data) {
-            const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", memRes.data.id).order("created_at", { ascending: false }).limit(20);
+            const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", memRes.data.id).order("created_at", { ascending: false }).limit(15);
             redeems = rdm || [];
         }
         let allTx = [
@@ -263,9 +262,9 @@ async function sendUserHistory(targetUid, rt) {
             ...(redeems || []).map(u => ({ label: `REDEEM${u.machine_id || '-'}`, pts: `-${u.points_redeemed}`, time: u.created_at, color: "#ff4b4b" }))
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
-        const finalHistory = allTx.slice(0, 20);
+        const finalHistory = allTx.slice(0, 15);
         const flex = {
-            type: "bubble", size: "giga",
+            type: "bubble",
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
             body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
@@ -297,7 +296,17 @@ async function listAdminsWithDelete(rt) {
 }
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-async function sendFlex(rt, alt, contents) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
+
+async function sendFlex(rt, alt, contents) { 
+  try {
+    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
+  } catch (err) {
+    console.error("LINE Flex Error Details:", err.response?.data);
+    // ถ้าส่ง Flex พัง ให้พยายามส่ง Error กลับไปบอกแอดมินทาง Text
+    const errorMsg = err.response?.data?.details?.[0]?.message || err.response?.data?.message || "Unknown LINE Error";
+    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text: `❌ LINE Reject: ${errorMsg}` }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}).catch(()=>{});
+  }
+}
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
