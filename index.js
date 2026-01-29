@@ -165,24 +165,14 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (OPTIMIZED)
+   4. INTERACTIVE REPORTS (ROBUST VERSION)
 ============================================================ */
-
-// ... (ส่วนบนเหมือนเดิมจนถึง INTERACTIVE REPORTS) ...
 
 const formatTime = (iso) => {
     if (!iso) return "--:--";
-    try {
-        const d = new Date(iso);
-        if (isNaN(d.getTime())) return "--:--";
-        // ✨ บังคับเป็นเวลาไทย (Asia/Bangkok) เพื่อความชัวร์
-        return d.toLocaleTimeString('th-TH', { 
-            timeZone: 'Asia/Bangkok', 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            hour12: false 
-        });
-    } catch (e) { return "--:--"; }
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "--:--";
+    return d.getHours().toString().padStart(2, '0') + ":" + d.getMinutes().toString().padStart(2, '0');
 };
 
 const createRow = (machine, uid, pts, time, color) => {
@@ -195,11 +185,24 @@ const createRow = (machine, uid, pts, time, color) => {
                 type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false,
                 action: { type: "message", text: `GET_HISTORY ${safeUid}` }
             },
-            { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold" }, // เพิ่ม flex เป็น 3
+            { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold" },
             { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
         ]
     };
 };
+
+async function sendReportMenu(replyToken) {
+  const flex = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 เลือกรายงาน (15 รายการล่าสุด)", color: "#ffffff", weight: "bold", size: "md", align: "center" }] },
+    body: { type: "box", layout: "vertical", spacing: "md", contents: [
+        { type: "button", style: "primary", color: "#ff4b4b", action: { type: "message", label: "🔔 Pending Requests", text: "SUB_PENDING" } },
+        { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📥 Recent Earns", text: "SUB_EARNS" } },
+        { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "📤 Recent Redeems", text: "SUB_REDEEMS" } }
+    ]}
+  };
+  await sendFlex(replyToken, "Select Report", flex);
+}
 
 async function listSubReport(replyToken, type) {
     try {
@@ -219,7 +222,7 @@ async function listSubReport(replyToken, type) {
             title = "📥 Recent Earns (15)"; color = "#00b900";
             const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             if (error) throw error;
-            // ✅ แก้จาก (data || []) เป็น (earns || []) เพื่อให้เวลาตรงกับที่สแกนจริง
+            // ✅ แก้ตัวแปร earns ให้ถูกต้องเพื่อให้เวลาตรง
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (15)"; color = "#ff9f00";
@@ -232,10 +235,10 @@ async function listSubReport(replyToken, type) {
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
                 
                 rows = raw.map(r => {
-                    // ✨ จัดการสถานะ Refunded
+                    // ✨ เพิ่มสถานะ Refunded
                     const isRefund = r.status === 'refunded';
                     const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
-                    const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b"; // สีเทาถ้าคืนเงินแล้ว
+                    const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b";
                     return createRow(r.machine_id, memMap[r.member_id], displayPts, r.created_at, displayColor);
                 });
             }
@@ -248,9 +251,6 @@ async function listSubReport(replyToken, type) {
         await sendReply(replyToken, `❌ Error: ${e.message}`); 
     }
 }
-
-// ... (ส่วนที่เหลือเหมือนเดิมจนจบไฟล์) ...
-
 
 async function sendUserHistory(targetUid, rt) {
     try {
@@ -302,8 +302,19 @@ async function listAdminsWithDelete(rt) {
   const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
   await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
 }
-async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
+
+async function sendReply(rt, text) { 
+    try {
+        await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
+    } catch (e) { console.error("Reply Error:", e.response?.data); }
+}
+
+async function sendReplyPush(to, text) { 
+    try {
+        await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
+    } catch (e) { console.error("Push Error:", e.response?.data); }
+}
+
 async function sendFlex(rt, alt, contents) { 
   try {
     await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
