@@ -222,7 +222,6 @@ async function listSubReport(replyToken, type) {
             title = "📥 Recent Earns (15)"; color = "#00b900";
             const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             if (error) throw error;
-            // ✅ แก้ตัวแปร earns ให้ถูกต้องเพื่อให้เวลาตรง
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (15)"; color = "#ff9f00";
@@ -235,7 +234,6 @@ async function listSubReport(replyToken, type) {
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
                 
                 rows = raw.map(r => {
-                    // ✨ เพิ่มสถานะ Refunded
                     const isRefund = r.status === 'refunded';
                     const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
                     const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b";
@@ -252,6 +250,7 @@ async function listSubReport(replyToken, type) {
     }
 }
 
+// ✨ อัปเดตฟังก์ชันนี้: แก้ไขประวัติ (History) ให้โชว์สถานะ Refunded เหมือนหน้า Report
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
@@ -267,7 +266,16 @@ async function sendUserHistory(targetUid, rt) {
         let allTx = [
             ...(reqsRes.data || []).map(r => ({ label: `REQUEST-`, pts: `+${r.points}`, time: r.request_at, color: "#4267B2" })),
             ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at || e.create_at, color: "#00b900" })),
-            ...(redeems || []).map(u => ({ label: `REDEEM${u.machine_id || '-'}`, pts: `-${u.points_redeemed}`, time: u.created_at, color: "#ff4b4b" }))
+            ...(redeems || []).map(u => {
+                // ✅ เพิ่ม Logic ตรวจสอบสถานะ Refunded ในหน้า History
+                const isRefund = u.status === 'refunded';
+                return { 
+                    label: `REDEEM${u.machine_id || '-'}`, 
+                    pts: isRefund ? `-${u.points_redeemed} (Ref)` : `-${u.points_redeemed}`, 
+                    time: u.created_at, 
+                    color: isRefund ? "#aaaaaa" : "#ff4b4b" 
+                };
+            })
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
         const finalHistory = allTx.slice(0, 15);
