@@ -165,17 +165,17 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (FIXED & EXPANDED)
+   4. INTERACTIVE REPORTS (FIXED LOGIC)
 ============================================================ */
 
 const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
 
-// ✅ สร้างแถวข้อมูล: Machine ID กว้างขึ้น, User ID กว้างและโชว์เต็ม
+// ✅ สร้างแถวข้อมูล: Machine (Flex 3), User ID (Flex 6) โชว์เต็ม
 const createRow = (machine, uid, pts, time, color) => ({
   type: "box", layout: "horizontal", margin: "xs", contents: [
     { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" },
     { 
-        type: "text", text: uid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
+        type: "text", text: uid || "Unknown", size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
         action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` }
     },
     { type: "text", text: pts, size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
@@ -187,23 +187,22 @@ async function listCombinedReport(replyToken) {
   try {
     const { data: pending } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(5);
     const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(5);
-    // ดึง redeems แบบปลอดภัย
     const { data: redeemsRaw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(5);
-    
-    // หา Line ID สำหรับ Redeems
-    const redeems = [];
-    if (redeemsRaw) {
-        for (let r of redeemsRaw) {
-            const { data: m } = await supabase.from("ninetyMember").select("line_user_id").eq("id", r.member_id).maybeSingle();
-            redeems.push({ ...r, line_id: m?.line_user_id || "Unknown" });
-        }
+
+    // แก้ไขการดึง Line ID แบบปลอดภัย (ดึงสมาชิกทั้งหมดครั้งเดียว)
+    let redeems = [];
+    if (redeemsRaw && redeemsRaw.length > 0) {
+        const mIds = redeemsRaw.map(r => r.member_id);
+        const { data: members } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", mIds);
+        const memMap = Object.fromEntries(members.map(m => [m.id, m.line_user_id]));
+        redeems = redeemsRaw.map(r => ({ ...r, line_id: memMap[r.member_id] || "Unknown" }));
     }
 
     const flex = {
       type: "bubble", size: "giga",
       header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 ACTIVITY REPORT", color: "#ffffff", weight: "bold", action: { type: "message", text: "REPORT" } }] },
       body: { type: "box", layout: "vertical", spacing: "sm", contents: [
-        { type: "text", text: "🔔 PENDING REQUESTS (Click to see 20)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_PENDING" } },
+        { type: "text", text: "🔔 PENDING REQUESTS (See All 20)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_PENDING" } },
         ...((pending?.length > 0) ? pending.map(r => ({
             type: "box", layout: "horizontal", margin: "xs", contents: [
                 { type: "text", text: r.line_user_id, size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
@@ -212,22 +211,22 @@ async function listCombinedReport(replyToken) {
             ]
         })) : [{ type: "text", text: "-", size: "xxs" }]),
         { type: "separator", margin: "md" },
-        { type: "text", text: "📥 RECENT EARNS (Click to see 20)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_EARNS" } },
+        { type: "text", text: "📥 RECENT EARNS (See All 20)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_EARNS" } },
         { type: "box", layout: "vertical", contents: (earns?.length > 0) ? earns.map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900")) : [{ type: "text", text: "-", size: "xxs" }] },
         { type: "separator", margin: "md" },
-        { type: "text", text: "📤 RECENT REDEEMS (Click to see 20)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REDEEMS" } },
+        { type: "text", text: "📤 RECENT REDEEMS (See All 20)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REDEEMS" } },
         { type: "box", layout: "vertical", contents: (redeems.length > 0) ? redeems.map(u => createRow(u.machine_id, u.line_id, `-${u.points_redeemed}p`, u.created_at, "#ff4b4b")) : [{ type: "text", text: "-", size: "xxs" }] }
       ]}
     };
     await sendFlex(replyToken, "Report", flex);
-  } catch (e) { console.error(e); await sendReply(replyToken, "❌ Error"); }
+  } catch (e) { console.error("Report Logic Error:", e); await sendReply(replyToken, "❌ Report Error"); }
 }
 
 async function listSubReport(replyToken, type) {
     try {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
-            title = "🔔 PENDING REQUESTS (LATEST 20)"; color = "#ff4b4b";
+            title = "🔔 PENDING REQUESTS (20 LATEST)"; color = "#ff4b4b";
             const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(20);
             rows = (data || []).map(r => ({
                 type: "box", layout: "horizontal", margin: "xs", contents: [
@@ -237,17 +236,16 @@ async function listSubReport(replyToken, type) {
                 ]
             }));
         } else if (type === "EARNS") {
-            title = "📥 RECENT EARNS (LATEST 20)"; color = "#00b900";
+            title = "📥 RECENT EARNS (20 LATEST)"; color = "#00b900";
             const { data } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(20);
             rows = (data || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900"));
         } else if (type === "REDEEMS") {
-            title = "📤 RECENT REDEEMS (LATEST 20)"; color = "#ff9f00";
+            title = "📤 RECENT REDEEMS (20 LATEST)"; color = "#ff9f00";
             const { data: raw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(20);
-            if (raw) {
-                for (let r of raw) {
-                    const { data: m } = await supabase.from("ninetyMember").select("line_user_id").eq("id", r.member_id).maybeSingle();
-                    rows.push(createRow(r.machine_id, m?.line_user_id || "Unknown", `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
-                }
+            if (raw && raw.length > 0) {
+                const { data: members } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", raw.map(r => r.member_id));
+                const memMap = Object.fromEntries(members.map(m => [m.id, m.line_user_id]));
+                rows = raw.map(r => createRow(r.machine_id, memMap[r.member_id] || "Unknown", `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
             }
         }
         await sendFlex(replyToken, title, { type: "bubble", size: "giga", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "sm", contents: rows.length > 0 ? rows : [{ type: "text", text: "-", size: "xxs" }] } });
@@ -309,3 +307,4 @@ async function sendFlex(rt, alt, contents) { await axios.post("https://api.line.
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
+
