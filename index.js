@@ -94,7 +94,6 @@ app.post("/webhook", async (req, res) => {
         
         if (userMsg === "ADMIN") return await sendAdminDashboard(event.replyToken);
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
-        
         if (userMsg === "REPORT") return await sendReportMenu(event.replyToken);
         
         if (userMsg === "SUB_PENDING") return await listSubReport(event.replyToken, "PENDING");
@@ -165,7 +164,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (ROBUST VERSION)
+   4. INTERACTIVE REPORTS
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -232,7 +231,6 @@ async function listSubReport(replyToken, type) {
                 const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
                 if (err2) throw err2;
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
-                
                 rows = raw.map(r => {
                     const isRefund = r.status === 'refunded';
                     const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
@@ -241,16 +239,12 @@ async function listSubReport(replyToken, type) {
                 });
             }
         }
-
         if (rows.length === 0) return await sendReply(replyToken, `ℹ️ ยังไม่มีรายการในหัวข้อ ${title} ค่ะ`);
         await sendFlex(replyToken, title, { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "xs", contents: rows } });
-    } catch (e) { 
-        console.error("SubReport Error:", e);
-        await sendReply(replyToken, `❌ Error: ${e.message}`); 
-    }
+    } catch (e) { await sendReply(replyToken, `❌ Error: ${e.message}`); }
 }
 
-// ✨ อัปเดตฟังก์ชันนี้: แก้ไขประวัติ (History) ให้โชว์สถานะ Refunded เหมือนหน้า Report
+// ✨ แก้ไขฟังก์ชันแสดงประวัติ (History): ขยายช่องและเลื่อนแต้มไปขวา
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
@@ -267,7 +261,6 @@ async function sendUserHistory(targetUid, rt) {
             ...(reqsRes.data || []).map(r => ({ label: `REQUEST-`, pts: `+${r.points}`, time: r.request_at, color: "#4267B2" })),
             ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at || e.create_at, color: "#00b900" })),
             ...(redeems || []).map(u => {
-                // ✅ เพิ่ม Logic ตรวจสอบสถานะ Refunded ในหน้า History
                 const isRefund = u.status === 'refunded';
                 return { 
                     label: `REDEEM${u.machine_id || '-'}`, 
@@ -284,9 +277,9 @@ async function sendUserHistory(targetUid, rt) {
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
             body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
-                    { type: "text", text: tx.label, size: "xxs", flex: 4, color: "#555555", weight: "bold" },
-                    { type: "text", text: tx.pts, size: "xs", flex: 2, weight: "bold", color: tx.color, align: "end" },
-                    { type: "text", text: formatTime(tx.time), size: "xxs", flex: 4, align: "end", color: "#aaaaaa" }
+                    { type: "text", text: tx.label, size: "xxs", flex: 5, color: "#555555", weight: "bold" }, // ขยายช่อง Label
+                    { type: "text", text: tx.pts, size: "xs", flex: 4, weight: "bold", color: tx.color, align: "end" }, // เลื่อนมูลค่าไปขวา
+                    { type: "text", text: new Date(tx.time).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'}) + " " + formatTime(tx.time), size: "xxs", flex: 3, align: "end", color: "#aaaaaa" } // ปรับเวลาให้สวย
                 ]
             })) }
         };
@@ -310,27 +303,14 @@ async function listAdminsWithDelete(rt) {
   const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
   await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
 }
-
 async function sendReply(rt, text) { 
-    try {
-        await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
-    } catch (e) { console.error("Reply Error:", e.response?.data); }
+    try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }
 }
-
 async function sendReplyPush(to, text) { 
-    try {
-        await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
-    } catch (e) { console.error("Push Error:", e.response?.data); }
+    try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }
 }
-
 async function sendFlex(rt, alt, contents) { 
-  try {
-    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
-  } catch (err) {
-    console.error("LINE Flex Error Details:", err.response?.data);
-    const errorMsg = err.response?.data?.details?.[0]?.message || err.response?.data?.message || "Unknown LINE Error";
-    await sendReply(rt, `❌ LINE Reject: ${errorMsg}`);
-  }
+  try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (err) { console.error("LINE Flex Error Details:", err.response?.data); await sendReply(rt, `❌ LINE Reject: ${err.response?.data?.message || "Unknown"}`); }
 }
 
 const PORT = process.env.PORT || 8080;
