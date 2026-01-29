@@ -95,13 +95,17 @@ app.post("/webhook", async (req, res) => {
         if (userMsg === "ADMIN") return await sendAdminDashboard(event.replyToken);
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
         if (userMsg === "REPORT") return await listCombinedReport(event.replyToken);
+        
+        // ✅ New Sub-Report Commands
+        if (userMsg === "SUB_REPORT_PENDING") return await listSubReport(event.replyToken, "PENDING");
+        if (userMsg === "SUB_REPORT_EARNS") return await listSubReport(event.replyToken, "EARNS");
+        if (userMsg === "SUB_REPORT_REDEEMS") return await listSubReport(event.replyToken, "REDEEMS");
+
         if (userMsg === "LIST_ADMIN") return await listAdminsWithDelete(event.replyToken);
         if (userMsg === "SET_RATIO_STEP1") { ratioWaitList.add(userId); return await sendReply(event.replyToken, "📊 ระบุ บาท:แต้ม (เช่น 10:1)"); }
         if (userMsg === "ADD_ADMIN_STEP1") { adminWaitList.add(userId); return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อ"); }
         if (userMsg.startsWith("DEL_ADMIN_ID ")) return await deleteAdmin(rawMsg.split(" ")[1], event.replyToken);
         if (userMsg.startsWith("APPROVE_ID ")) return await approveSpecificPoint(rawMsg.split(" ")[1], event.replyToken);
-        
-        // ✅ New Command: ดูประวัติ User แบบละเอียด
         if (userMsg.startsWith("GET_HISTORY ")) return await sendUserHistory(rawMsg.split(" ")[1], event.replyToken);
       }
       
@@ -124,33 +128,29 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ============================================================
-   3. HELPERS & DB LOGIC
+   3. HELPERS
 ============================================================ */
 async function isAdmin(uid) { 
     if(!uid) return false;
     const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).maybeSingle(); 
     return !!data; 
 }
-
 async function updateExchangeRatio(input, rt) {
     const parts = input.split(":");
     if (parts.length !== 2) return await sendReply(rt, "❌ รูปแบบผิด! เช่น 10:1");
     await supabase.from("system_configs").upsert({ config_key: "exchange_ratio", baht_val: parseInt(parts[0]), point_val: parseInt(parts[1]), updated_at: new Date().toISOString() }, { onConflict: 'config_key' });
     await sendReply(rt, `✅ ตั้งค่าสำเร็จ! ${parts[0]} บาท : ${parts[1]} แต้ม`);
 }
-
 async function addNewAdmin(input, rt) {
   const [tid, name] = input.split(/\s+/);
   if (!tid?.startsWith("U")) return await sendReply(rt, "❌ ID ผิดพลาด");
   await supabase.from("bot_admins").upsert({ line_user_id: tid, admin_name: name || "Admin" }, { onConflict: 'line_user_id' });
   await sendReply(rt, `✅ เพิ่มแอดมินสำเร็จ!`);
 }
-
 async function deleteAdmin(tid, rt) {
   await supabase.from("bot_admins").delete().eq("line_user_id", tid);
   await sendReply(rt, "🗑️ ลบเรียบร้อย");
 }
-
 async function approveSpecificPoint(rid, rt) {
   const { data: req } = await supabase.from("point_requests").select("*").eq("id", rid).maybeSingle();
   if (!req) return;
@@ -165,76 +165,92 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS
+   4. INTERACTIVE REPORTS (EXPANDED)
 ============================================================ */
+
+const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
+
+// ✅ Helper สร้างแถวข้อมูล (ปรับความกว้าง Machine ID และ User ID ตามโจทย์)
+const createRow = (machine, uid, pts, time, color) => ({
+  type: "box", layout: "horizontal", margin: "xs", contents: [
+    { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" }, // 🔥 กว้างขึ้น (flex 3)
+    { 
+        type: "text", text: uid, size: "xxs", flex: 5, weight: "bold", color: "#4267B2", ellipsis: true, // 🔥 กว้างมาก (flex 5) และโชว์เต็ม
+        action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` }
+    },
+    { type: "text", text: pts, size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
+    { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
+  ]
+});
 
 async function listCombinedReport(replyToken) {
   try {
     const { data: pending } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(5);
-    // 🚀 ปรับเป็น 20 รายการตามโจทย์
-    const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(20);
-    const { data: redeems } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(20);
-
-    const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
-
-    // ✅ Helper สร้างแถวข้อมูล พร้อมทำให้ ID คลิกได้
-    const createRow = (machine, uid, pts, time, color) => ({
-      type: "box", layout: "horizontal", margin: "xs", contents: [
-        { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 2, color: "#888888" },
-        { 
-            type: "text", text: `${uid.substring(0, 6)}..`, size: "xxs", flex: 3, weight: "bold", color: "#4267B2", 
-            action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` } // 🔥 คลิกดูประวัติ
-        },
-        { type: "text", text: pts, size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
-        { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
-      ]
-    });
+    const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(5);
+    // Join ninetyMember เพื่อเอา Line ID
+    const { data: redeems } = await supabase.from("redeemlogs").select("*, ninetyMember(line_user_id)").order("created_at", { ascending: false }).limit(5);
 
     const flex = {
-      type: "bubble",
-      size: "giga", // 📏 ขยายขนาดให้รองรับข้อมูลเยอะ
-      header: { 
-          type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [
-              { type: "text", text: "📊 ACTIVITY REPORT (20 Latest)", color: "#ffffff", weight: "bold", action: { type: "message", text: "REPORT" } }
-          ] 
-      },
+      type: "bubble", size: "giga",
+      header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 ACTIVITY REPORT", color: "#ffffff", weight: "bold", action: { type: "message", text: "REPORT" } }] },
       body: { type: "box", layout: "vertical", spacing: "sm", contents: [
-        { type: "text", text: "🔔 PENDING REQUESTS", weight: "bold", size: "xs", color: "#ff4b4b" },
+        // 🔥 หัวข้อกดได้เพื่อดู 20 รายการ
+        { type: "text", text: "🔔 PENDING REQUESTS (See All)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_REPORT_PENDING" } },
         ...((pending?.length > 0) ? pending.map(r => ({
             type: "box", layout: "horizontal", margin: "xs", contents: [
-                { type: "text", text: `${r.line_user_id.substring(0, 6)}..`, size: "xxs", flex: 3, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
-                { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900" },
+                { type: "text", text: r.line_user_id, size: "xxs", flex: 5, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
                 { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
             ]
         })) : [{ type: "text", text: "-", size: "xxs" }]),
         { type: "separator", margin: "md" },
-        { type: "text", text: "📥 RECENT EARNS", weight: "bold", size: "xs", color: "#00b900" },
+        { type: "text", text: "📥 RECENT EARNS (See All)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_REPORT_EARNS" } },
         { type: "box", layout: "vertical", contents: (earns?.length > 0) ? earns.map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900")) : [{ type: "text", text: "-", size: "xxs" }] },
         { type: "separator", margin: "md" },
-        { type: "text", text: "📤 RECENT REDEEMS", weight: "bold", size: "xs", color: "#ff9f00" },
-        { type: "box", layout: "vertical", contents: (redeems?.length > 0) ? redeems.map(u => createRow(u.machine_id, "Member", `-${u.points_redeemed}p`, u.created_at, "#ff4b4b")) : [{ type: "text", text: "-", size: "xxs" }] }
+        { type: "text", text: "📤 RECENT REDEEMS (See All)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REPORT_REDEEMS" } },
+        { type: "box", layout: "vertical", contents: (redeems?.length > 0) ? redeems.map(u => createRow(u.machine_id, u.ninetyMember?.line_user_id || "Unknown", `-${u.points_redeemed}p`, u.created_at, "#ff4b4b")) : [{ type: "text", text: "-", size: "xxs" }] }
       ]}
     };
     await sendFlex(replyToken, "Report", flex);
-  } catch (e) { console.error(e); await sendReply(replyToken, "❌ Error: " + e.message); }
+  } catch (e) { console.error(e); await sendReply(replyToken, "❌ Error"); }
 }
 
-// ✅ New Function: ดึงประวัติธุรกรรมรวม 20 รายการของ User
+// ✅ ฟังก์ชันแสดงหน้าต่างแยก (20 รายการ)
+async function listSubReport(replyToken, type) {
+    let title = "", color = "", rows = [];
+    if (type === "PENDING") {
+        title = "🔔 PENDING REQUESTS (20 LATEST)"; color = "#ff4b4b";
+        const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(20);
+        rows = (data || []).map(r => ({
+            type: "box", layout: "horizontal", margin: "xs", contents: [
+                { type: "text", text: r.line_user_id, size: "xxs", flex: 5, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
+                { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
+            ]
+        }));
+    } else if (type === "EARNS") {
+        title = "📥 RECENT EARNS (20 LATEST)"; color = "#00b900";
+        const { data } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(20);
+        rows = (data || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900"));
+    } else if (type === "REDEEMS") {
+        title = "📤 RECENT REDEEMS (20 LATEST)"; color = "#ff9f00";
+        const { data } = await supabase.from("redeemlogs").select("*, ninetyMember(line_user_id)").order("created_at", { ascending: false }).limit(20);
+        rows = (data || []).map(u => createRow(u.machine_id, u.ninetyMember?.line_user_id || "Unknown", `-${u.points_redeemed}p`, u.created_at, "#ff4b4b"));
+    }
+    const flex = { type: "bubble", size: "giga", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "sm", contents: rows.length > 0 ? rows : [{ type: "text", text: "No Data", size: "xs" }] } };
+    await sendFlex(replyToken, title, flex);
+}
+
 async function sendUserHistory(targetUid, rt) {
     try {
-        // 1. ดึง Request
         const { data: reqs } = await supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(20);
-        // 2. ดึง Earns
         const { data: earns } = await supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(20);
-        // 3. ดึง Redeems (ต้องหา member_id ก่อน)
         const { data: mem } = await supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle();
         let redeems = [];
         if (mem) {
             const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", mem.id).order("created_at", { ascending: false }).limit(20);
             redeems = rdm || [];
         }
-
-        // 4. รวมข้อมูลและจัดเรียงเวลา
         let allTx = [
             ...(reqs || []).map(r => ({ type: "REQ", pts: `+${r.points}`, machine: "-", time: r.request_at, color: "#4267B2" })),
             ...(earns || []).map(e => ({ type: "EARN", pts: `+${e.point_get}`, machine: e.machine_id, time: e.used_at, color: "#00b900" })),
@@ -242,10 +258,9 @@ async function sendUserHistory(targetUid, rt) {
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
         const finalHistory = allTx.slice(0, 20);
-
         const flex = {
-            type: "bubble",
-            header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid.substring(0, 8)}..`, color: "#ffffff", weight: "bold" }] },
+            type: "bubble", size: "giga",
+            header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
             body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
                     { type: "text", text: tx.type, size: "xxs", flex: 1, color: "#888888" },
@@ -260,7 +275,7 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UI DASHBOARD & UTILS
+   5. UTILS
 ============================================================ */
 async function sendAdminDashboard(replyToken) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
@@ -275,7 +290,6 @@ async function listAdminsWithDelete(rt) {
   const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
   await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
 }
-
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendFlex(rt, alt, contents) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
