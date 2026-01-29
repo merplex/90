@@ -94,8 +94,11 @@ app.post("/webhook", async (req, res) => {
         
         if (userMsg === "ADMIN") return await sendAdminDashboard(event.replyToken);
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
-        if (userMsg === "REPORT") return await listCombinedReport(event.replyToken);
         
+        // 📊 ปุ่ม REPORT ส่งเมนูเลือกประเภท
+        if (userMsg === "REPORT") return await sendReportMenu(event.replyToken);
+        
+        // 📑 ดึงรายการแยก 20 อันตามประเภท
         if (userMsg === "SUB_PENDING") return await listSubReport(event.replyToken, "PENDING");
         if (userMsg === "SUB_EARNS") return await listSubReport(event.replyToken, "EARNS");
         if (userMsg === "SUB_REDEEMS") return await listSubReport(event.replyToken, "REDEEMS");
@@ -105,6 +108,8 @@ app.post("/webhook", async (req, res) => {
         if (userMsg === "ADD_ADMIN_STEP1") { adminWaitList.add(userId); return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อ"); }
         if (userMsg.startsWith("DEL_ADMIN_ID ")) return await deleteAdmin(rawMsg.split(" ")[1], event.replyToken);
         if (userMsg.startsWith("APPROVE_ID ")) return await approveSpecificPoint(rawMsg.split(" ")[1], event.replyToken);
+        
+        // 📜 ดึงประวัติ User แบบละเอียด
         if (userMsg.startsWith("GET_HISTORY ")) return await sendUserHistory(rawMsg.split(" ")[1], event.replyToken);
       }
       
@@ -167,8 +172,23 @@ async function approveSpecificPoint(rid, rt) {
    4. INTERACTIVE REPORTS (SAFE & EXPANDED)
 ============================================================ */
 
-const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
+const formatTime = (iso) => iso ? new Date(iso).toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit'}) + " " + new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
 
+// ✅ เมนูเลือกประเภท Report
+async function sendReportMenu(replyToken) {
+  const flex = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 SELECT REPORT TYPE", color: "#ffffff", weight: "bold", size: "lg", align: "center" }] },
+    body: { type: "box", layout: "vertical", spacing: "md", contents: [
+        { type: "button", style: "primary", color: "#ff4b4b", action: { type: "message", label: "🔔 REQUEST PENDING", text: "SUB_PENDING" } },
+        { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📥 RECENT EARNS", text: "SUB_EARNS" } },
+        { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "📤 RECENT REDEEMS", text: "SUB_REDEEMS" } }
+    ]}
+  };
+  await sendFlex(replyToken, "Select Report", flex);
+}
+
+// ✅ แถวข้อมูลมาตรฐาน (สำหรับหน้า 20 รายการ)
 const createRow = (machine, uid, pts, time, color) => ({
   type: "box", layout: "horizontal", margin: "xs", contents: [
     { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" },
@@ -177,53 +197,9 @@ const createRow = (machine, uid, pts, time, color) => ({
         action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` }
     },
     { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
-    { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
+    { type: "text", text: formatTime(time).split(" ")[1], size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
   ]
 });
-
-async function listCombinedReport(replyToken) {
-  try {
-    // ⚡ ดึงหัวข้อละ 4 รายการตามโจทย์ Boss
-    const [pendingRes, earnsRes, redeemsRawRes] = await Promise.all([
-        supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(4),
-        supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(4),
-        supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(4)
-    ]);
-
-    const pending = pendingRes.data || [];
-    const earns = earnsRes.data || [];
-    const redeemsRaw = redeemsRawRes.data || [];
-
-    let redeems = [];
-    if (redeemsRaw.length > 0) {
-        const { data: members } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", redeemsRaw.map(r => r.member_id));
-        const memMap = Object.fromEntries((members || []).map(m => [m.id, m.line_user_id]));
-        redeems = redeemsRaw.map(r => ({ ...r, line_id: memMap[r.member_id] || "Unknown" }));
-    }
-
-    const flex = {
-      type: "bubble", size: "giga",
-      header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 ACTIVITY REPORT", color: "#ffffff", weight: "bold", action: { type: "message", text: "REPORT" } }] },
-      body: { type: "box", layout: "vertical", spacing: "sm", contents: [
-        { type: "text", text: "🔔 PENDING (Click for All 20)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_PENDING" } },
-        ...(pending.map(r => ({
-            type: "box", layout: "horizontal", margin: "xs", contents: [
-                { type: "text", text: String(r.line_user_id), size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
-                { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
-                { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
-            ]
-        }))),
-        { type: "separator", margin: "md" },
-        { type: "text", text: "📥 EARNS (Click for All 20)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_EARNS" } },
-        ...(earns.map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900"))),
-        { type: "separator", margin: "md" },
-        { type: "text", text: "📤 REDEEMS (Click for All 20)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REDEEMS" } },
-        ...(redeems.map(u => createRow(u.machine_id, u.line_id, `-${u.points_redeemed}p`, u.created_at, "#ff4b4b")))
-      ]}
-    };
-    await sendFlex(replyToken, "Report", flex);
-  } catch (e) { await sendReply(replyToken, "❌ Error Loading Report"); }
-}
 
 async function listSubReport(replyToken, type) {
     try {
@@ -255,6 +231,7 @@ async function listSubReport(replyToken, type) {
     } catch (e) { await sendReply(replyToken, "❌ Error Loading Data"); }
 }
 
+// ✅ ฟังก์ชันแสดงประวัติ (History) รูปแบบสวยงามตามโจทย์
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
@@ -262,26 +239,31 @@ async function sendUserHistory(targetUid, rt) {
             supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(20),
             supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle()
         ]);
+        
         let redeems = [];
         if (memRes.data) {
             const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", memRes.data.id).order("created_at", { ascending: false }).limit(20);
             redeems = rdm || [];
         }
+
+        // รวมและแปลงรูปแบบประวัติ: ประเภท+MachineID | แต้ม | วันที่ เวลา
         let allTx = [
-            ...(reqsRes.data || []).map(r => ({ type: "REQ", pts: `+${r.points}`, machine: "-", time: r.request_at, color: "#4267B2" })),
-            ...(earnsRes.data || []).map(e => ({ type: "EARN", pts: `+${e.point_get}`, machine: e.machine_id, time: e.used_at, color: "#00b900" })),
-            ...(redeems || []).map(u => ({ type: "USE", pts: `-${u.points_redeemed}`, machine: u.machine_id, time: u.created_at, color: "#ff4b4b" }))
+            ...(reqsRes.data || []).map(r => ({ label: `REQUEST-`, pts: `+${r.points}`, time: r.request_at, color: "#4267B2" })),
+            ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at, color: "#00b900" })),
+            ...(redeems || []).map(u => ({ label: `REDEEM${u.machine_id || '-'}`, pts: `-${u.points_redeemed}`, time: u.created_at, color: "#ff4b4b" }))
         ];
+        
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
+        const finalHistory = allTx.slice(0, 20);
+
         const flex = {
             type: "bubble", size: "giga",
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
-            body: { type: "box", layout: "vertical", spacing: "sm", contents: allTx.slice(0, 20).map(tx => ({
+            body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
-                    { type: "text", text: tx.type, size: "xxs", flex: 1, color: "#888888" },
-                    { type: "text", text: tx.machine, size: "xxs", flex: 2 },
+                    { type: "text", text: tx.label, size: "xxs", flex: 4, color: "#555555", weight: "bold" },
                     { type: "text", text: tx.pts, size: "xs", flex: 2, weight: "bold", color: tx.color, align: "end" },
-                    { type: "text", text: new Date(tx.time).toLocaleString('th-TH', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }), size: "xxs", flex: 4, align: "end", color: "#aaaaaa" }
+                    { type: "text", text: formatTime(tx.time), size: "xxs", flex: 4, align: "end", color: "#aaaaaa" }
                 ]
             })) }
         };
