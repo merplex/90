@@ -13,7 +13,7 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM (HMI & LIFF)
+   1. API SYSTEM (HMI & LIFF) - ไม่มีการแก้ไข
 ============================================================ */
 app.post("/create-qr", async (req, res) => {
     try {
@@ -164,17 +164,17 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (STABLE & EXPANDED)
+   4. INTERACTIVE REPORTS (HIGH PERFORMANCE)
 ============================================================ */
 
 const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
 
-// ✅ สร้างแถวข้อมูล: Machine (flex 3), User ID (flex 6) โชว์เต็ม
+// ✅ สร้างแถวข้อมูลตามขนาดที่ Boss กำหนด
 const createRow = (machine, uid, pts, time, color) => ({
   type: "box", layout: "horizontal", margin: "xs", contents: [
-    { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" },
+    { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" }, // Machine กว้างขึ้น
     { 
-        type: "text", text: String(uid || "-"), size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
+        type: "text", text: String(uid || "-"), size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true, // User ID กว้างและโชว์เต็ม
         action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` }
     },
     { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
@@ -184,13 +184,20 @@ const createRow = (machine, uid, pts, time, color) => ({
 
 async function listCombinedReport(replyToken) {
   try {
-    const { data: pending } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(5);
-    const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(5);
-    const { data: redeemsRaw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(5);
+    // ⚡ ดึงข้อมูลพร้อมกัน 3 ตาราง (Parallel Loading)
+    const [pendingRes, earnsRes, redeemsRawRes] = await Promise.all([
+        supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(5),
+        supabase.from("qrPointToken").select("*").eq("is_used", true).not("used_at", "is", null).order("used_at", { ascending: false }).limit(5),
+        supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(5)
+    ]);
 
-    // ดึง Line ID แบบปลอดภัย
+    const pending = pendingRes.data || [];
+    const earns = earnsRes.data || [];
+    const redeemsRaw = redeemsRawRes.data || [];
+
+    // ⚡ Batch Mapping Line ID (ลดการวนลูปซ้ำซ้อน)
     let redeems = [];
-    if (redeemsRaw && redeemsRaw.length > 0) {
+    if (redeemsRaw.length > 0) {
         const { data: members } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", redeemsRaw.map(r => r.member_id));
         const memMap = Object.fromEntries((members || []).map(m => [m.id, m.line_user_id]));
         redeems = redeemsRaw.map(r => ({ ...r, line_id: memMap[r.member_id] || "Unknown" }));
@@ -200,8 +207,8 @@ async function listCombinedReport(replyToken) {
       type: "bubble", size: "giga",
       header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 ACTIVITY REPORT", color: "#ffffff", weight: "bold", action: { type: "message", text: "REPORT" } }] },
       body: { type: "box", layout: "vertical", spacing: "sm", contents: [
-        { type: "text", text: "🔔 PENDING REQUESTS (Click for 20)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_PENDING" } },
-        ...((pending?.length > 0) ? pending.map(r => ({
+        { type: "text", text: "🔔 PENDING REQUESTS (See All 20)", weight: "bold", size: "xs", color: "#ff4b4b", action: { type: "message", text: "SUB_PENDING" } },
+        ...(pending.length > 0 ? pending.map(r => ({
             type: "box", layout: "horizontal", margin: "xs", contents: [
                 { type: "text", text: String(r.line_user_id), size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
                 { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
@@ -209,15 +216,18 @@ async function listCombinedReport(replyToken) {
             ]
         })) : [{ type: "text", text: "-", size: "xxs" }]),
         { type: "separator", margin: "md" },
-        { type: "text", text: "📥 RECENT EARNS (Click for 20)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_EARNS" } },
-        { type: "box", layout: "vertical", contents: (earns?.length > 0) ? earns.map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900")) : [{ type: "text", text: "-", size: "xxs" }] },
+        { type: "text", text: "📥 RECENT EARNS (See All 20)", weight: "bold", size: "xs", color: "#00b900", action: { type: "message", text: "SUB_EARNS" } },
+        { type: "box", layout: "vertical", contents: (earns.length > 0) ? earns.map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at, "#00b900")) : [{ type: "text", text: "-", size: "xxs" }] },
         { type: "separator", margin: "md" },
-        { type: "text", text: "📤 RECENT REDEEMS (Click for 20)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REDEEMS" } },
+        { type: "text", text: "📤 RECENT REDEEMS (See All 20)", weight: "bold", size: "xs", color: "#ff9f00", action: { type: "message", text: "SUB_REDEEMS" } },
         { type: "box", layout: "vertical", contents: (redeems.length > 0) ? redeems.map(u => createRow(u.machine_id, u.line_id, `-${u.points_redeemed}p`, u.created_at, "#ff4b4b")) : [{ type: "text", text: "-", size: "xxs" }] }
       ]}
     };
     await sendFlex(replyToken, "Report", flex);
-  } catch (e) { console.error(e); await sendReply(replyToken, "❌ Report Error"); }
+  } catch (e) { 
+      console.error(e); 
+      await sendReply(replyToken, "❌ Error: ระบบประมวลผลข้อมูลไม่ทัน กรุณาลองใหม่นะคะ"); 
+  }
 }
 
 async function listSubReport(replyToken, type) {
@@ -252,21 +262,26 @@ async function listSubReport(replyToken, type) {
 
 async function sendUserHistory(targetUid, rt) {
     try {
-        const { data: reqs } = await supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(20);
-        const { data: earns } = await supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(20);
-        const { data: mem } = await supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle();
+        const [reqsRes, earnsRes, memRes] = await Promise.all([
+            supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(20),
+            supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(20),
+            supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle()
+        ]);
+        
         let redeems = [];
-        if (mem) {
-            const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", mem.id).order("created_at", { ascending: false }).limit(20);
+        if (memRes.data) {
+            const { data: rdm } = await supabase.from("redeemlogs").select("*").eq("member_id", memRes.data.id).order("created_at", { ascending: false }).limit(20);
             redeems = rdm || [];
         }
+
         let allTx = [
-            ...(reqs || []).map(r => ({ type: "REQ", pts: `+${r.points}`, machine: "-", time: r.request_at, color: "#4267B2" })),
-            ...(earns || []).map(e => ({ type: "EARN", pts: `+${e.point_get}`, machine: e.machine_id, time: e.used_at, color: "#00b900" })),
+            ...(reqsRes.data || []).map(r => ({ type: "REQ", pts: `+${r.points}`, machine: "-", time: r.request_at, color: "#4267B2" })),
+            ...(earnsRes.data || []).map(e => ({ type: "EARN", pts: `+${e.point_get}`, machine: e.machine_id, time: e.used_at, color: "#00b900" })),
             ...(redeems || []).map(u => ({ type: "USE", pts: `-${u.points_redeemed}`, machine: u.machine_id, time: u.created_at, color: "#ff4b4b" }))
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
         const finalHistory = allTx.slice(0, 20);
+
         const flex = {
             type: "bubble", size: "giga",
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
@@ -284,11 +299,11 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS
+   5. UTILS - ไม่มีการแก้ไข
 ============================================================ */
-async function sendAdminDashboard(replyToken) {
+async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
-  await sendFlex(replyToken, "God Mode", flex);
+  await sendFlex(rt, "God Mode", flex);
 }
 async function sendManageAdminFlex(rt) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } };
