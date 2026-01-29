@@ -168,7 +168,30 @@ async function approveSpecificPoint(rid, rt) {
    4. INTERACTIVE REPORTS (ROBUST VERSION)
 ============================================================ */
 
-const formatTime = (iso) => iso ? new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : "--:--";
+const formatTime = (iso) => {
+    try {
+        if (!iso) return "--:--";
+        const date = new Date(iso);
+        if (isNaN(date.getTime())) return "--:--";
+        return date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch (e) { return "--:--"; }
+};
+
+const createRow = (machine, uid, pts, time, color) => {
+    const safeUid = String(uid || "-");
+    const safeMachine = String(machine || "?");
+    return {
+        type: "box", layout: "horizontal", margin: "xs", contents: [
+            { type: "text", text: `[${safeMachine}]`, size: "xxs", flex: 3, color: "#888888" },
+            { 
+                type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
+                action: { type: "message", label: "History", text: `GET_HISTORY ${safeUid}` }
+            },
+            { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
+            { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
+        ]
+    };
+};
 
 async function sendReportMenu(replyToken) {
   const flex = {
@@ -183,55 +206,42 @@ async function sendReportMenu(replyToken) {
   await sendFlex(replyToken, "Select Report", flex);
 }
 
-const createRow = (machine, uid, pts, time, color) => ({
-  type: "box", layout: "horizontal", margin: "xs", contents: [
-    { type: "text", text: `[${machine || '?'}]`, size: "xxs", flex: 3, color: "#888888" },
-    { 
-        type: "text", text: String(uid || "-"), size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
-        action: { type: "message", label: "History", text: `GET_HISTORY ${uid}` }
-    },
-    { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
-    { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
-  ]
-});
-
 async function listSubReport(replyToken, type) {
     try {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
             title = "🔔 Pending Requests (20)"; color = "#ff4b4b";
-            const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(20);
+            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(20);
+            if (error) throw error;
             rows = (data || []).map(r => ({
                 type: "box", layout: "horizontal", margin: "xs", contents: [
-                    { type: "text", text: String(r.line_user_id), size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
                     { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
                     { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
                 ]
             }));
         } else if (type === "EARNS") {
             title = "📥 Recent Earns (20)"; color = "#00b900";
-            // ✨ ปรับให้ดึงข้อมูลที่สแกนแล้ว (is_used = true) ทั้งหมด
-            const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(20);
+            const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(20);
+            if (error) throw error;
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (20)"; color = "#ff9f00";
-            const { data: raw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(20);
+            const { data: raw, error: err1 } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(20);
+            if (err1) throw err1;
             if (raw && raw.length > 0) {
-                // ดึงข้อมูลสมาชิกมาทำ Map ป้องกันการดึงข้อมูลผิดพลาด
-                const { data: ms } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", raw.map(r => r.member_id));
+                const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", raw.map(r => r.member_id));
+                if (err2) throw err2;
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
-                rows = raw.map(r => createRow(r.machine_id, memMap[r.member_id] || "Unknown", `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
+                rows = raw.map(r => createRow(r.machine_id, memMap[r.member_id], `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
             }
         }
 
-        if (rows.length === 0) {
-            return await sendReply(replyToken, `ℹ️ ยังไม่มีรายการในหัวข้อ ${title} ค่ะ`);
-        }
-
+        if (rows.length === 0) return await sendReply(replyToken, `ℹ️ ยังไม่มีรายการในหัวข้อ ${title} ค่ะ`);
         await sendFlex(replyToken, title, { type: "bubble", size: "giga", header: { type: "box", layout: "vertical", backgroundColor: color, contents: [{ type: "text", text: title, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "xs", contents: rows } });
     } catch (e) { 
         console.error("SubReport Error:", e);
-        await sendReply(replyToken, "❌ เกิดข้อผิดพลาดในการโหลดข้อมูล"); 
+        await sendReply(replyToken, `❌ Error: ${e.message}`); 
     }
 }
 
@@ -261,7 +271,7 @@ async function sendUserHistory(targetUid, rt) {
                 type: "box", layout: "horizontal", contents: [
                     { type: "text", text: tx.label, size: "xxs", flex: 4, color: "#555555", weight: "bold" },
                     { type: "text", text: tx.pts, size: "xs", flex: 2, weight: "bold", color: tx.color, align: "end" },
-                    { type: "text", text: new Date(tx.time).toLocaleString('th-TH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}), size: "xxs", flex: 4, align: "end", color: "#aaaaaa" }
+                    { type: "text", text: formatTime(tx.time), size: "xxs", flex: 4, align: "end", color: "#aaaaaa" }
                 ]
             })) }
         };
