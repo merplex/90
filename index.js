@@ -168,11 +168,21 @@ async function approveSpecificPoint(rid, rt) {
    4. INTERACTIVE REPORTS (OPTIMIZED)
 ============================================================ */
 
+// ... (ส่วนบนเหมือนเดิมจนถึง INTERACTIVE REPORTS) ...
+
 const formatTime = (iso) => {
     if (!iso) return "--:--";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "--:--";
-    return d.getHours().toString().padStart(2, '0') + ":" + d.getMinutes().toString().padStart(2, '0');
+    try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return "--:--";
+        // ✨ บังคับเป็นเวลาไทย (Asia/Bangkok) เพื่อความชัวร์
+        return d.toLocaleTimeString('th-TH', { 
+            timeZone: 'Asia/Bangkok', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: false 
+        });
+    } catch (e) { return "--:--"; }
 };
 
 const createRow = (machine, uid, pts, time, color) => {
@@ -185,24 +195,11 @@ const createRow = (machine, uid, pts, time, color) => {
                 type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false,
                 action: { type: "message", text: `GET_HISTORY ${safeUid}` }
             },
-            { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
+            { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold" }, // เพิ่ม flex เป็น 3
             { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
         ]
     };
 };
-
-async function sendReportMenu(replyToken) {
-  const flex = {
-    type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: "📊 เลือกรายงาน (15 รายการล่าสุด)", color: "#ffffff", weight: "bold", size: "md", align: "center" }] },
-    body: { type: "box", layout: "vertical", spacing: "md", contents: [
-        { type: "button", style: "primary", color: "#ff4b4b", action: { type: "message", label: "🔔 Pending Requests", text: "SUB_PENDING" } },
-        { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📥 Recent Earns", text: "SUB_EARNS" } },
-        { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "📤 Recent Redeems", text: "SUB_REDEEMS" } }
-    ]}
-  };
-  await sendFlex(replyToken, "Select Report", flex);
-}
 
 async function listSubReport(replyToken, type) {
     try {
@@ -213,7 +210,7 @@ async function listSubReport(replyToken, type) {
             if (error) throw error;
             rows = (data || []).map(r => ({
                 type: "box", layout: "horizontal", margin: "xs", contents: [
-                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 6, ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 6, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
                     { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
                     { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
                 ]
@@ -222,6 +219,7 @@ async function listSubReport(replyToken, type) {
             title = "📥 Recent Earns (15)"; color = "#00b900";
             const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             if (error) throw error;
+            // ✅ แก้จาก (data || []) เป็น (earns || []) เพื่อให้เวลาตรงกับที่สแกนจริง
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (15)"; color = "#ff9f00";
@@ -232,7 +230,14 @@ async function listSubReport(replyToken, type) {
                 const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
                 if (err2) throw err2;
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
-                rows = raw.map(r => createRow(r.machine_id, memMap[r.member_id], `-${r.points_redeemed}p`, r.created_at, "#ff4b4b"));
+                
+                rows = raw.map(r => {
+                    // ✨ จัดการสถานะ Refunded
+                    const isRefund = r.status === 'refunded';
+                    const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
+                    const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b"; // สีเทาถ้าคืนเงินแล้ว
+                    return createRow(r.machine_id, memMap[r.member_id], displayPts, r.created_at, displayColor);
+                });
             }
         }
 
@@ -243,6 +248,9 @@ async function listSubReport(replyToken, type) {
         await sendReply(replyToken, `❌ Error: ${e.message}`); 
     }
 }
+
+// ... (ส่วนที่เหลือเหมือนเดิมจนจบไฟล์) ...
+
 
 async function sendUserHistory(targetUid, rt) {
     try {
