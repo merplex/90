@@ -296,11 +296,15 @@ async function listAdminsWithDelete(rt) {
 }
 async function sendReply(rt, text) { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
 async function sendReplyPush(to, text) { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); }
-
 async function sendFlex(rt, alt, contents) { 
   try {
     await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
   } catch (err) {
     console.error("LINE Flex Error Details:", err.response?.data);
     const errorMsg = err.response?.data?.details?.[0]?.message || err.response?.data?.message || "Unknown LINE Error";
-    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messa
+    await sendReply(rt, `❌ LINE Reject: ${errorMsg}`);
+  }
+}
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
