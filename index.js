@@ -182,7 +182,7 @@ const createRow = (machine, uid, pts, time, color) => {
         type: "box", layout: "horizontal", margin: "xs", contents: [
             { type: "text", text: `[${safeMachine}]`, size: "xxs", flex: 3, color: "#888888" },
             { 
-                type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, ellipsis: true,
+                type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false,
                 action: { type: "message", text: `GET_HISTORY ${safeUid}` }
             },
             { type: "text", text: String(pts), size: "xxs", flex: 2, color: color, align: "end", weight: "bold" },
@@ -302,11 +302,5 @@ async function sendFlex(rt, alt, contents) {
     await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); 
   } catch (err) {
     console.error("LINE Flex Error Details:", err.response?.data);
-    // ถ้าส่ง Flex พัง ให้พยายามส่ง Error กลับไปบอกแอดมินทาง Text
     const errorMsg = err.response?.data?.details?.[0]?.message || err.response?.data?.message || "Unknown LINE Error";
-    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text: `❌ LINE Reject: ${errorMsg}` }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}).catch(()=>{});
-  }
-}
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, "0.0.0.0", () => console.log(`🚀 God Mode on port ${PORT}`));
+    await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messa
