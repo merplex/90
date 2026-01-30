@@ -13,7 +13,7 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM (HMI & LIFF) - ไม่มีการแก้ไข
+   1. API SYSTEM (HMI & LIFF) - ห้ามแก้
 ============================================================ */
 app.post("/create-qr", async (req, res) => {
     try {
@@ -75,7 +75,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
 });
 
 /* ============================================================
-   2. WEBHOOK & BOT LOGIC - ไม่มีการแก้ไข
+   2. WEBHOOK & BOT LOGIC
 ============================================================ */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -121,13 +121,16 @@ app.post("/webhook", async (req, res) => {
           const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", member?.id).maybeSingle();
           await sendReply(event.replyToken, `🌟 ยอดแต้มของคุณ: ${w?.point_balance || 0} แต้ม`);
       }
-    } catch (e) { console.error("Webhook Error:", e); }
+    } catch (e) { 
+        console.error("Webhook Error:", e);
+        if (isUserAdmin) await sendReply(event.replyToken, `⚠️ Error: ${e.message}`);
+    }
   }
   res.sendStatus(200);
 });
 
 /* ============================================================
-   3. HELPERS - ไม่มีการแก้ไข
+   3. HELPERS - ห้ามแก้
 ============================================================ */
 async function isAdmin(uid) { 
     if(!uid) return false;
@@ -164,7 +167,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS - แก้ไขเฉพาะจุด Pending
+   4. INTERACTIVE REPORTS - แก้ไขเฉพาะจุดจัดวาง & กรอง Unique
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -174,21 +177,14 @@ const formatTime = (iso) => {
     return d.getHours().toString().padStart(2, '0') + ":" + d.getMinutes().toString().padStart(2, '0');
 };
 
-const createRow = (machine, uid, pts, time, color) => {
-    const safeUid = String(uid || "-");
-    const safeMachine = String(machine || "?");
-    return {
-        type: "box", layout: "horizontal", margin: "xs", contents: [
-            { type: "text", text: `[${safeMachine}]`, size: "xxs", flex: 3, color: "#888888" },
-            { 
-                type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false,
-                action: { type: "message", text: `GET_HISTORY ${safeUid}` }
-            },
-            { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold" },
-            { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
-        ]
-    };
-};
+const createRow = (machine, uid, pts, time, color) => ({
+    type: "box", layout: "horizontal", margin: "xs", contents: [
+        { type: "text", text: `[${String(machine || "?")}]`, size: "xxs", flex: 3, color: "#888888", gravity: "center" },
+        { type: "text", text: String(uid || "-"), size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, gravity: "center", action: { type: "message", text: `GET_HISTORY ${uid}` } },
+        { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold", gravity: "center" },
+        { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa", gravity: "center" }
+    ]
+});
 
 async function sendReportMenu(replyToken) {
   const flex = {
@@ -208,74 +204,36 @@ async function listSubReport(replyToken, type) {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
             title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
-            // ✨ ดึงข้อมูลทั้งหมดมากรอง Unique User ฝั่ง Code
-            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
-            if (error) throw error;
+            // ✨ กรองเฉพาะรายการล่าสุดของแต่ละ User
+            const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
+            const uniqueMap = new Map();
+            (data || []).forEach(item => {
+                if (!uniqueMap.has(item.line_user_id)) uniqueMap.set(item.line_user_id, item);
+            });
+            const uniqueList = Array.from(uniqueMap.values()).slice(0, 15);
 
-            const uniqueRequests = [];
-            const seenUsers = new Set();
-
-            for (const item of (data || [])) {
-                if (!seenUsers.has(item.line_user_id)) {
-                    seenUsers.add(item.line_user_id);
-                    uniqueRequests.push(item);
-                }
-                if (uniqueRequests.length >= 15) break; // เอาแค่ 15 คนล่าสุดที่ขอมา
-            }
-
-            rows = uniqueRequests.map(r => ({
-                type: "box", 
-                layout: "horizontal", 
-                margin: "md", 
-                alignItems: "center", // ✅ จัดให้อยู่ตรงกลางแนวตั้งสัมพันธ์กับปุ่ม
+            rows = uniqueList.map(r => ({
+                type: "box", layout: "horizontal", margin: "md", spacing: "sm",
                 contents: [
-                    { 
-                        type: "text", 
-                        text: String(r.line_user_id || "-"), 
-                        size: "xxs", 
-                        flex: 5, 
-                        gravity: "center", // ✅ จัดอักษรตรงกลางช่อง
-                        ellipsis: true, 
-                        action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } 
-                    },
-                    { 
-                        type: "text", 
-                        text: `+${r.points}p`, 
-                        size: "xs", 
-                        flex: 2, // ✅ ปรับ Flex ให้แต้มไม่ไปซ้อนหลังปุ่ม
-                        color: "#00b900", 
-                        align: "end", 
-                        gravity: "center" 
-                    },
-                    { 
-                        type: "button", 
-                        style: "primary", 
-                        color: "#00b900", 
-                        height: "sm", 
-                        flex: 3, // ✅ ขยายช่องปุ่มให้โชว์คำว่า OK ชัดๆ ไม่โดนย่อ
-                        action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } 
-                    }
+                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 5, gravity: "center", ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                    { type: "text", text: `+${r.points}p`, size: "xs", flex: 2, color: "#00b900", align: "end", gravity: "center" },
+                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 3, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
                 ]
             }));
         } else if (type === "EARNS") {
             title = "📥 Recent Earns (15)"; color = "#00b900";
-            const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
-            if (error) throw error;
+            const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (15)"; color = "#ff9f00";
-            const { data: raw, error: err1 } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(15);
-            if (err1) throw err1;
+            const { data: raw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(15);
             if (raw && raw.length > 0) {
                 const uids = raw.map(r => r.member_id).filter(id => id);
-                const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
-                if (err2) throw err2;
+                const { data: ms } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
                 rows = raw.map(r => {
                     const isRefund = r.status === 'refunded';
-                    const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
-                    const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b";
-                    return createRow(r.machine_id, memMap[r.member_id], displayPts, r.created_at, displayColor);
+                    return createRow(r.machine_id, memMap[r.member_id], isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`, r.created_at, isRefund ? "#aaaaaa" : "#ff4b4b");
                 });
             }
         }
@@ -301,12 +259,7 @@ async function sendUserHistory(targetUid, rt) {
             ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at || e.create_at, color: "#00b900" })),
             ...(redeems || []).map(u => {
                 const isRefund = u.status === 'refunded';
-                return { 
-                    label: `REDEEM${u.machine_id || '-'}`, 
-                    pts: isRefund ? `-${u.points_redeemed} (Ref)` : `-${u.points_redeemed}`, 
-                    time: u.created_at, 
-                    color: isRefund ? "#aaaaaa" : "#ff4b4b" 
-                };
+                return { label: `REDEEM${u.machine_id || '-'}`, pts: isRefund ? `-${u.points_redeemed} (Ref)` : `-${u.points_redeemed}`, time: u.created_at, color: isRefund ? "#aaaaaa" : "#ff4b4b" };
             })
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -327,7 +280,7 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS - ไม่มีการแก้ไข
+   5. UTILS - คืนค่ามาตรฐาน ADMIN ป้องกันพัง
 ============================================================ */
 async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
@@ -342,14 +295,11 @@ async function listAdminsWithDelete(rt) {
   const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
   await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
 }
-async function sendReply(rt, text) { 
-    try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }
-}
-async function sendReplyPush(to, text) { 
-    try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }
-}
+async function sendReply(rt, text) { try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }}
+async function sendReplyPush(to, text) { try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }}
 async function sendFlex(rt, alt, contents) { 
-  try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (err) { console.error("LINE Flex Error Details:", err.response?.data); await sendReply(rt, `❌ LINE Reject: ${err.response?.data?.message || "Unknown"}`); }
+  try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } 
+  catch (err) { console.error("LINE Flex Error Details:", err.response?.data); await sendReply(rt, `❌ LINE Reject: ${err.response?.data?.message || "Unknown"}`); }
 }
 
 const PORT = process.env.PORT || 8080;
