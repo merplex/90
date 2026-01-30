@@ -13,10 +13,8 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM & 2. WEBHOOK & 3. HELPERS (คงเดิม)
+   1. API SYSTEM & 2. WEBHOOK & 3. HELPERS (คงเดิมตาม Boss สั่ง)
 ============================================================ */
-// ... (ส่วนอื่นๆ เรคงไว้ตามต้นฉบับของ Boss เพื่อความปลอดภัยนะคะ) ...
-
 app.post("/create-qr", async (req, res) => {
     try {
         const { amount, machine_id } = req.body;
@@ -155,7 +153,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS - ปรับแก้ไข SUB_PENDING ตามสั่ง
+   4. INTERACTIVE REPORTS (คงเดิมตาม Boss สั่ง)
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -193,43 +191,17 @@ async function listSubReport(replyToken, type) {
         if (type === "PENDING") {
             title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
             const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
-            
-            // ✨ กรองเฉพาะรายการล่าสุดของแต่ละ User
             const uniqueMap = new Map();
             (data || []).forEach(item => {
                 if (!uniqueMap.has(item.line_user_id)) uniqueMap.set(item.line_user_id, item);
             });
             const uniqueList = Array.from(uniqueMap.values()).slice(0, 15);
-
             rows = uniqueList.map(r => ({
                 type: "box", layout: "horizontal", margin: "md", alignItems: "center",
                 contents: [
-                    { 
-                        type: "text", 
-                        text: String(r.line_user_id || "-").substring(0, 8) + "...", // ✅ แสดงแค่ 8 ตัวแรก
-                        size: "xs", 
-                        flex: 4, 
-                        gravity: "center", 
-                        action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } 
-                    },
-                    { 
-                        type: "text", 
-                        text: `+${r.points}p`, 
-                        size: "sm", 
-                        flex: 3, 
-                        color: "#00b900", 
-                        align: "center", 
-                        weight: "bold",
-                        gravity: "center" 
-                    },
-                    { 
-                        type: "button", 
-                        style: "primary", 
-                        color: "#00b900", 
-                        height: "sm", 
-                        flex: 3, 
-                        action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } 
-                    }
+                    { type: "text", text: String(r.line_user_id || "-").substring(0, 8) + "...", size: "xs", flex: 4, gravity: "center", action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                    { type: "text", text: `+${r.points}p`, size: "sm", flex: 3, color: "#00b900", align: "center", weight: "bold", gravity: "center" },
+                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 3, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
                 ]
             }));
         } else if (type === "EARNS") {
@@ -292,21 +264,51 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS - คงเดิม
+   5. UTILS - แก้ไขเฉพาะจุด LIST ADMIN (listAdminsWithDelete)
 ============================================================ */
 async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
   await sendFlex(rt, "God Mode", flex);
 }
+
 async function sendManageAdminFlex(rt) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } };
   await sendFlex(rt, "Admin Settings", flex);
 }
+
+// ✨ ปรับแก้จุด List Admin: อักษรใหญ่ขึ้น จัดกึ่งกลางบรรทัด และปุ่ม DEL สั้นกระชับ
 async function listAdminsWithDelete(rt) {
   const { data: adms } = await supabase.from("bot_admins").select("*");
-  const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
-  await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
+  const adminRows = (adms || []).map(a => ({ 
+      type: "box", 
+      layout: "horizontal", 
+      margin: "md", 
+      alignItems: "center", // ✅ จัดให้อยู่กึ่งกลางบรรทัดแนวตั้ง
+      contents: [
+          { 
+              type: "text", 
+              text: `👤 ${a.admin_name}`, 
+              size: "sm", // ✅ ขยายอักษรให้ใหญ่ขึ้น
+              flex: 5, 
+              gravity: "center" // ✅ จัดกึ่งกลางข้อความ
+          },
+          { 
+              type: "button", 
+              style: "primary", 
+              color: "#ff4b4b", 
+              height: "sm", 
+              flex: 2, 
+              action: { 
+                  type: "message", 
+                  label: "DEL", // ✅ ใช้คำว่า DEL อย่างเดียวเพื่อให้แสดงผลครบ
+                  text: `DEL_ADMIN_ID ${a.line_user_id}` 
+              } 
+          }
+      ] 
+  }));
+  await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold", size: "lg", margin: "md" }, ...adminRows] } });
 }
+
 async function sendReply(rt, text) { try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }}
 async function sendReplyPush(to, text) { try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }}
 async function sendFlex(rt, alt, contents) { 
