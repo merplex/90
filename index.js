@@ -13,7 +13,7 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM (HMI & LIFF)
+   1. API SYSTEM (HMI & LIFF) - ไม่มีการแก้ไข
 ============================================================ */
 app.post("/create-qr", async (req, res) => {
     try {
@@ -75,7 +75,7 @@ app.get("/liff/redeem-execute", async (req, res) => {
 });
 
 /* ============================================================
-   2. WEBHOOK & BOT LOGIC
+   2. WEBHOOK & BOT LOGIC - ไม่มีการแก้ไข
 ============================================================ */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
@@ -127,7 +127,7 @@ app.post("/webhook", async (req, res) => {
 });
 
 /* ============================================================
-   3. HELPERS
+   3. HELPERS - ไม่มีการแก้ไข
 ============================================================ */
 async function isAdmin(uid) { 
     if(!uid) return false;
@@ -164,7 +164,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS
+   4. INTERACTIVE REPORTS - แก้ไขเฉพาะจุด Pending
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -208,13 +208,53 @@ async function listSubReport(replyToken, type) {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
             title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
-            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(15);
+            // ✨ ดึงข้อมูลทั้งหมดมากรอง Unique User ฝั่ง Code
+            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
             if (error) throw error;
-            rows = (data || []).map(r => ({
-                type: "box", layout: "horizontal", margin: "xs", contents: [
-                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 6, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
-                    { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
-                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
+
+            const uniqueRequests = [];
+            const seenUsers = new Set();
+
+            for (const item of (data || [])) {
+                if (!seenUsers.has(item.line_user_id)) {
+                    seenUsers.add(item.line_user_id);
+                    uniqueRequests.push(item);
+                }
+                if (uniqueRequests.length >= 15) break; // เอาแค่ 15 คนล่าสุดที่ขอมา
+            }
+
+            rows = uniqueRequests.map(r => ({
+                type: "box", 
+                layout: "horizontal", 
+                margin: "md", 
+                alignItems: "center", // ✅ จัดให้อยู่ตรงกลางแนวตั้งสัมพันธ์กับปุ่ม
+                contents: [
+                    { 
+                        type: "text", 
+                        text: String(r.line_user_id || "-"), 
+                        size: "xxs", 
+                        flex: 5, 
+                        gravity: "center", // ✅ จัดอักษรตรงกลางช่อง
+                        ellipsis: true, 
+                        action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } 
+                    },
+                    { 
+                        type: "text", 
+                        text: `+${r.points}p`, 
+                        size: "xs", 
+                        flex: 2, // ✅ ปรับ Flex ให้แต้มไม่ไปซ้อนหลังปุ่ม
+                        color: "#00b900", 
+                        align: "end", 
+                        gravity: "center" 
+                    },
+                    { 
+                        type: "button", 
+                        style: "primary", 
+                        color: "#00b900", 
+                        height: "sm", 
+                        flex: 3, // ✅ ขยายช่องปุ่มให้โชว์คำว่า OK ชัดๆ ไม่โดนย่อ
+                        action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } 
+                    }
                 ]
             }));
         } else if (type === "EARNS") {
@@ -244,7 +284,6 @@ async function listSubReport(replyToken, type) {
     } catch (e) { await sendReply(replyToken, `❌ Error: ${e.message}`); }
 }
 
-// ✨ แก้ไขฟังก์ชันแสดงประวัติ (History): ขยายช่องและเลื่อนแต้มไปขวา
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
@@ -277,9 +316,9 @@ async function sendUserHistory(targetUid, rt) {
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
             body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
-                    { type: "text", text: tx.label, size: "xxs", flex: 5, color: "#555555", weight: "bold" }, // ขยายช่อง Label
-                    { type: "text", text: tx.pts, size: "xs", flex: 4, weight: "bold", color: tx.color, align: "end" }, // เลื่อนมูลค่าไปขวา
-                    { type: "text", text: new Date(tx.time).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'}) + " " + formatTime(tx.time), size: "xxs", flex: 3, align: "end", color: "#aaaaaa" } // ปรับเวลาให้สวย
+                    { type: "text", text: tx.label, size: "xxs", flex: 5, color: "#555555", weight: "bold" },
+                    { type: "text", text: tx.pts, size: "xs", flex: 4, weight: "bold", color: tx.color, align: "end" },
+                    { type: "text", text: new Date(tx.time).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'}) + " " + formatTime(tx.time), size: "xxs", flex: 3, align: "end", color: "#aaaaaa" }
                 ]
             })) }
         };
@@ -288,7 +327,7 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS
+   5. UTILS - ไม่มีการแก้ไข
 ============================================================ */
 async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
