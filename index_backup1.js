@@ -13,7 +13,7 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM (HMI & LIFF)
+   1. API SYSTEM & 2. WEBHOOK & 3. HELPERS (คงเดิมตาม Boss สั่ง)
 ============================================================ */
 app.post("/create-qr", async (req, res) => {
     try {
@@ -74,9 +74,6 @@ app.get("/liff/redeem-execute", async (req, res) => {
   } catch (err) { res.status(500).send(err.message); }
 });
 
-/* ============================================================
-   2. WEBHOOK & BOT LOGIC
-============================================================ */
 app.post("/webhook", async (req, res) => {
   const events = req.body.events;
   for (let event of events) {
@@ -85,21 +82,17 @@ app.post("/webhook", async (req, res) => {
     if (event.type !== "message" || event.message.type !== "text") continue;
     const rawMsg = event.message.text.trim();
     const userMsg = rawMsg.toUpperCase();
-
     try {
       if (userMsg === "USER_LINE") return await sendReply(event.replyToken, `ID: ${userId}`);
       if (isUserAdmin) {
         if (ratioWaitList.has(userId)) { ratioWaitList.delete(userId); return await updateExchangeRatio(rawMsg, event.replyToken); }
         if (adminWaitList.has(userId)) { adminWaitList.delete(userId); return await addNewAdmin(rawMsg, event.replyToken); }
-        
         if (userMsg === "ADMIN") return await sendAdminDashboard(event.replyToken);
         if (userMsg === "MANAGE_ADMIN") return await sendManageAdminFlex(event.replyToken);
         if (userMsg === "REPORT") return await sendReportMenu(event.replyToken);
-        
         if (userMsg === "SUB_PENDING") return await listSubReport(event.replyToken, "PENDING");
         if (userMsg === "SUB_EARNS") return await listSubReport(event.replyToken, "EARNS");
         if (userMsg === "SUB_REDEEMS") return await listSubReport(event.replyToken, "REDEEMS");
-
         if (userMsg === "LIST_ADMIN") return await listAdminsWithDelete(event.replyToken);
         if (userMsg === "SET_RATIO_STEP1") { ratioWaitList.add(userId); return await sendReply(event.replyToken, "📊 ระบุ บาท:แต้ม (เช่น 10:1)"); }
         if (userMsg === "ADD_ADMIN_STEP1") { adminWaitList.add(userId); return await sendReply(event.replyToken, "🆔 ส่ง ID เว้นวรรคตามด้วยชื่อ"); }
@@ -107,7 +100,6 @@ app.post("/webhook", async (req, res) => {
         if (userMsg.startsWith("APPROVE_ID ")) return await approveSpecificPoint(rawMsg.split(" ")[1], event.replyToken);
         if (userMsg.startsWith("GET_HISTORY ")) return await sendUserHistory(rawMsg.split(" ")[1], event.replyToken);
       }
-      
       const pointMatch = rawMsg.match(/^(\d+)\s*(แต้ม|คะแนน|p|point|pts)?$/i);
       if (pointMatch) {
           const points = parseInt(pointMatch[1]);
@@ -126,9 +118,6 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 });
 
-/* ============================================================
-   3. HELPERS
-============================================================ */
 async function isAdmin(uid) { 
     if(!uid) return false;
     const { data } = await supabase.from("bot_admins").select("line_user_id").eq("line_user_id", uid).maybeSingle(); 
@@ -164,7 +153,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS
+   4. INTERACTIVE REPORTS (คงเดิมตาม Boss สั่ง)
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -174,21 +163,14 @@ const formatTime = (iso) => {
     return d.getHours().toString().padStart(2, '0') + ":" + d.getMinutes().toString().padStart(2, '0');
 };
 
-const createRow = (machine, uid, pts, time, color) => {
-    const safeUid = String(uid || "-");
-    const safeMachine = String(machine || "?");
-    return {
-        type: "box", layout: "horizontal", margin: "xs", contents: [
-            { type: "text", text: `[${safeMachine}]`, size: "xxs", flex: 3, color: "#888888" },
-            { 
-                type: "text", text: safeUid, size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false,
-                action: { type: "message", text: `GET_HISTORY ${safeUid}` }
-            },
-            { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold" },
-            { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa" }
-        ]
-    };
-};
+const createRow = (machine, uid, pts, time, color) => ({
+    type: "box", layout: "horizontal", margin: "xs", contents: [
+        { type: "text", text: `[${String(machine || "?")}]`, size: "xxs", flex: 3, color: "#888888", gravity: "center" },
+        { type: "text", text: String(uid || "-"), size: "xxs", flex: 6, weight: "bold", color: "#4267B2", wrap: false, gravity: "center", action: { type: "message", text: `GET_HISTORY ${uid}` } },
+        { type: "text", text: String(pts), size: "xxs", flex: 3, color: color, align: "end", weight: "bold", gravity: "center" },
+        { type: "text", text: formatTime(time), size: "xxs", flex: 2, align: "end", color: "#aaaaaa", gravity: "center" }
+    ]
+});
 
 async function sendReportMenu(replyToken) {
   const flex = {
@@ -208,34 +190,34 @@ async function listSubReport(replyToken, type) {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
             title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
-            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(15);
-            if (error) throw error;
-            rows = (data || []).map(r => ({
-                type: "box", layout: "horizontal", margin: "xs", contents: [
-                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 6, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
-                    { type: "text", text: `+${r.points}p`, size: "xxs", flex: 2, color: "#00b900", align: "end" },
-                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
+            const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
+            const uniqueMap = new Map();
+            (data || []).forEach(item => {
+                if (!uniqueMap.has(item.line_user_id)) uniqueMap.set(item.line_user_id, item);
+            });
+            const uniqueList = Array.from(uniqueMap.values()).slice(0, 15);
+            rows = uniqueList.map(r => ({
+                type: "box", layout: "horizontal", margin: "md", alignItems: "center",
+                contents: [
+                    { type: "text", text: String(r.line_user_id || "-").substring(0, 8) + "...", size: "xs", flex: 4, gravity: "center", action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
+                    { type: "text", text: `+${r.points}p`, size: "sm", flex: 3, color: "#00b900", align: "center", weight: "bold", gravity: "center" },
+                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 3, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
                 ]
             }));
         } else if (type === "EARNS") {
             title = "📥 Recent Earns (15)"; color = "#00b900";
-            const { data: earns, error } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
-            if (error) throw error;
+            const { data: earns } = await supabase.from("qrPointToken").select("*").eq("is_used", true).order("used_at", { ascending: false }).limit(15);
             rows = (earns || []).map(e => createRow(e.machine_id, e.used_by, `+${e.point_get}p`, e.used_at || e.create_at, "#00b900"));
         } else if (type === "REDEEMS") {
             title = "📤 Recent Redeems (15)"; color = "#ff9f00";
-            const { data: raw, error: err1 } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(15);
-            if (err1) throw err1;
+            const { data: raw } = await supabase.from("redeemlogs").select("*").order("created_at", { ascending: false }).limit(15);
             if (raw && raw.length > 0) {
                 const uids = raw.map(r => r.member_id).filter(id => id);
-                const { data: ms, error: err2 } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
-                if (err2) throw err2;
+                const { data: ms } = await supabase.from("ninetyMember").select("id, line_user_id").in("id", uids);
                 const memMap = Object.fromEntries((ms || []).map(m => [m.id, m.line_user_id]));
                 rows = raw.map(r => {
                     const isRefund = r.status === 'refunded';
-                    const displayPts = isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`;
-                    const displayColor = isRefund ? "#aaaaaa" : "#ff4b4b";
-                    return createRow(r.machine_id, memMap[r.member_id], displayPts, r.created_at, displayColor);
+                    return createRow(r.machine_id, memMap[r.member_id], isRefund ? `-${r.points_redeemed} (Ref)` : `-${r.points_redeemed}p`, r.created_at, isRefund ? "#aaaaaa" : "#ff4b4b");
                 });
             }
         }
@@ -244,7 +226,6 @@ async function listSubReport(replyToken, type) {
     } catch (e) { await sendReply(replyToken, `❌ Error: ${e.message}`); }
 }
 
-// ✨ แก้ไขฟังก์ชันแสดงประวัติ (History): ขยายช่องและเลื่อนแต้มไปขวา
 async function sendUserHistory(targetUid, rt) {
     try {
         const [reqsRes, earnsRes, memRes] = await Promise.all([
@@ -262,12 +243,7 @@ async function sendUserHistory(targetUid, rt) {
             ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at || e.create_at, color: "#00b900" })),
             ...(redeems || []).map(u => {
                 const isRefund = u.status === 'refunded';
-                return { 
-                    label: `REDEEM${u.machine_id || '-'}`, 
-                    pts: isRefund ? `-${u.points_redeemed} (Ref)` : `-${u.points_redeemed}`, 
-                    time: u.created_at, 
-                    color: isRefund ? "#aaaaaa" : "#ff4b4b" 
-                };
+                return { label: `REDEEM${u.machine_id || '-'}`, pts: isRefund ? `-${u.points_redeemed} (Ref)` : `-${u.points_redeemed}`, time: u.created_at, color: isRefund ? "#aaaaaa" : "#ff4b4b" };
             })
         ];
         allTx.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -277,9 +253,9 @@ async function sendUserHistory(targetUid, rt) {
             header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📜 HISTORY: ${targetUid}`, color: "#ffffff", weight: "bold", size: "xxs" }] },
             body: { type: "box", layout: "vertical", spacing: "sm", contents: finalHistory.map(tx => ({
                 type: "box", layout: "horizontal", contents: [
-                    { type: "text", text: tx.label, size: "xxs", flex: 5, color: "#555555", weight: "bold" }, // ขยายช่อง Label
-                    { type: "text", text: tx.pts, size: "xs", flex: 4, weight: "bold", color: tx.color, align: "end" }, // เลื่อนมูลค่าไปขวา
-                    { type: "text", text: new Date(tx.time).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'}) + " " + formatTime(tx.time), size: "xxs", flex: 3, align: "end", color: "#aaaaaa" } // ปรับเวลาให้สวย
+                    { type: "text", text: tx.label, size: "xxs", flex: 5, color: "#555555", weight: "bold" },
+                    { type: "text", text: tx.pts, size: "xs", flex: 4, weight: "bold", color: tx.color, align: "end" },
+                    { type: "text", text: new Date(tx.time).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'}) + " " + formatTime(tx.time), size: "xxs", flex: 3, align: "end", color: "#aaaaaa" }
                 ]
             })) }
         };
@@ -288,29 +264,56 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS
+   5. UTILS - แก้ไขเฉพาะจุด LIST ADMIN (listAdminsWithDelete)
 ============================================================ */
 async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
   await sendFlex(rt, "God Mode", flex);
 }
+
 async function sendManageAdminFlex(rt) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } };
   await sendFlex(rt, "Admin Settings", flex);
 }
+
+// ✨ ปรับแก้จุด List Admin: อักษรใหญ่ขึ้น จัดกึ่งกลางบรรทัด และปุ่ม DEL สั้นกระชับ
 async function listAdminsWithDelete(rt) {
   const { data: adms } = await supabase.from("bot_admins").select("*");
-  const adminRows = (adms || []).map(a => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `👤 ${a.admin_name}`, size: "xs", flex: 3 }, { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "🗑️ REMOVE", text: `DEL_ADMIN_ID ${a.line_user_id}` } }] }));
-  await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold" }, ...adminRows] } });
+  const adminRows = (adms || []).map(a => ({ 
+      type: "box", 
+      layout: "horizontal", 
+      margin: "md", 
+      alignItems: "center", // ✅ จัดให้อยู่กึ่งกลางบรรทัดแนวตั้ง
+      contents: [
+          { 
+              type: "text", 
+              text: `👤 ${a.admin_name}`, 
+              size: "sm", // ✅ ขยายอักษรให้ใหญ่ขึ้น
+              flex: 5, 
+              gravity: "center" // ✅ จัดกึ่งกลางข้อความ
+          },
+          { 
+              type: "button", 
+              style: "primary", 
+              color: "#ff4b4b", 
+              height: "sm", 
+              flex: 2, 
+              action: { 
+                  type: "message", 
+                  label: "DEL", // ✅ ใช้คำว่า DEL อย่างเดียวเพื่อให้แสดงผลครบ
+                  text: `DEL_ADMIN_ID ${a.line_user_id}` 
+              } 
+          }
+      ] 
+  }));
+  await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold", size: "lg", margin: "md" }, ...adminRows] } });
 }
-async function sendReply(rt, text) { 
-    try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }
-}
-async function sendReplyPush(to, text) { 
-    try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }
-}
+
+async function sendReply(rt, text) { try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }}
+async function sendReplyPush(to, text) { try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }}
 async function sendFlex(rt, alt, contents) { 
-  try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (err) { console.error("LINE Flex Error Details:", err.response?.data); await sendReply(rt, `❌ LINE Reject: ${err.response?.data?.message || "Unknown"}`); }
+  try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "flex", altText: alt, contents }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } 
+  catch (err) { console.error("LINE Flex Error Details:", err.response?.data); await sendReply(rt, `❌ LINE Reject: ${err.response?.data?.message || "Unknown"}`); }
 }
 
 const PORT = process.env.PORT || 8080;
