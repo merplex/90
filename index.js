@@ -13,9 +13,9 @@ let adminWaitList = new Set();
 let ratioWaitList = new Set(); 
 
 /* ============================================================
-   1. API SYSTEM & 2. WEBHOOK & 3. HELPERS (คงเดิมตาม Boss สั่ง)
+   1. API SYSTEM & 2. WEBHOOK & 3. HELPERS (คงเดิม)
 ============================================================ */
-// ... (ส่วนนี้เรคงไว้ตามไฟล์ต้นฉบับของ Boss เป๊ะๆ ไม่มีการแตะต้องค่ะ) ...
+// ... (ส่วนอื่นๆ เรคงไว้ตามต้นฉบับของ Boss เพื่อความปลอดภัยนะคะ) ...
 
 app.post("/create-qr", async (req, res) => {
     try {
@@ -155,7 +155,7 @@ async function approveSpecificPoint(rid, rt) {
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS - แก้ไขเฉพาะจุด SUB_PENDING
+   4. INTERACTIVE REPORTS - ปรับแก้ไข SUB_PENDING ตามสั่ง
 ============================================================ */
 
 const formatTime = (iso) => {
@@ -192,26 +192,44 @@ async function listSubReport(replyToken, type) {
         let title = "", color = "", rows = [];
         if (type === "PENDING") {
             title = "🔔 Pending Requests (15)"; color = "#ff4b4b";
-            // ✨ 1. ดึงข้อมูล 50 อันล่าสุดเพื่อมาคัด Unique ใน Code
-            const { data, error } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false }).limit(50);
-            if (error) throw error;
+            const { data } = await supabase.from("point_requests").select("*").order("request_at", { ascending: false });
+            
+            // ✨ กรองเฉพาะรายการล่าสุดของแต่ละ User
+            const uniqueMap = new Map();
+            (data || []).forEach(item => {
+                if (!uniqueMap.has(item.line_user_id)) uniqueMap.set(item.line_user_id, item);
+            });
+            const uniqueList = Array.from(uniqueMap.values()).slice(0, 15);
 
-            const uniqueRequests = [];
-            const seenUsers = new Set();
-            for (const item of (data || [])) {
-                if (!seenUsers.has(item.line_user_id)) {
-                    seenUsers.add(item.line_user_id);
-                    uniqueRequests.push(item);
-                }
-                if (uniqueRequests.length >= 15) break;
-            }
-
-            rows = uniqueRequests.map(r => ({
-                type: "box", layout: "horizontal", margin: "md", spacing: "md",
+            rows = uniqueList.map(r => ({
+                type: "box", layout: "horizontal", margin: "md", alignItems: "center",
                 contents: [
-                    { type: "text", text: String(r.line_user_id || "-"), size: "xxs", flex: 5, gravity: "center", ellipsis: true, action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } },
-                    { type: "text", text: `+${r.points}p`, size: "xs", flex: 2, color: "#00b900", align: "end", gravity: "center" },
-                    { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 3, action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } }
+                    { 
+                        type: "text", 
+                        text: String(r.line_user_id || "-").substring(0, 8) + "...", // ✅ แสดงแค่ 8 ตัวแรก
+                        size: "xs", 
+                        flex: 4, 
+                        gravity: "center", 
+                        action: { type: "message", text: `GET_HISTORY ${r.line_user_id}` } 
+                    },
+                    { 
+                        type: "text", 
+                        text: `+${r.points}p`, 
+                        size: "sm", 
+                        flex: 3, 
+                        color: "#00b900", 
+                        align: "center", 
+                        weight: "bold",
+                        gravity: "center" 
+                    },
+                    { 
+                        type: "button", 
+                        style: "primary", 
+                        color: "#00b900", 
+                        height: "sm", 
+                        flex: 3, 
+                        action: { type: "message", label: "OK", text: `APPROVE_ID ${r.id}` } 
+                    }
                 ]
             }));
         } else if (type === "EARNS") {
