@@ -139,6 +139,8 @@ async function deleteAdmin(tid, rt) {
   await supabase.from("bot_admins").delete().eq("line_user_id", tid);
   await sendReply(rt, "🗑️ ลบเรียบร้อย");
 }
+
+// ✨ จุดแก้ไขที่ 2: บันทึกรายการ Approve ลงตาราง Earn Logs เพื่อให้ขึ้น Recent Earns
 async function approveSpecificPoint(rid, rt) {
   const { data: req } = await supabase.from("point_requests").select("*").eq("id", rid).maybeSingle();
   if (!req) return;
@@ -146,16 +148,28 @@ async function approveSpecificPoint(rid, rt) {
   if (!m) { m = (await supabase.from("ninetyMember").insert({ line_user_id: req.line_user_id }).select().single()).data; }
   const { data: w } = await supabase.from("memberWallet").select("point_balance").eq("member_id", m.id).maybeSingle();
   const newTotal = (w?.point_balance || 0) + req.points;
+  
   await supabase.from("memberWallet").upsert({ member_id: m.id, point_balance: newTotal }, { onConflict: 'member_id' });
+  
+  // ✅ FIX: บันทึกลงตาราง qrPointToken (ใช้ machine_id: "ADMIN") เพื่อให้แสดงผลใน Recent Earns และ History
+  await supabase.from("qrPointToken").insert({
+      qr_token: `MANUAL-${crypto.randomUUID()}`,
+      point_get: req.points,
+      machine_id: "ADMIN",
+      is_used: true,
+      used_by: req.line_user_id,
+      used_at: new Date().toISOString(),
+      create_at: new Date().toISOString()
+  });
+
   await supabase.from("point_requests").delete().eq("id", req.id);
   await sendReply(rt, `✅ อนุมัติสำเร็จ!`);
   await sendReplyPush(req.line_user_id, `🎊 แอดมินอนุมัติ ${req.points} แต้มแล้วค่ะ`);
 }
 
 /* ============================================================
-   4. INTERACTIVE REPORTS (คงเดิมตาม Boss สั่ง)
+   4. INTERACTIVE REPORTS
 ============================================================ */
-
 const formatTime = (iso) => {
     if (!iso) return "--:--";
     const d = new Date(iso);
@@ -226,10 +240,11 @@ async function listSubReport(replyToken, type) {
     } catch (e) { await sendReply(replyToken, `❌ Error: ${e.message}`); }
 }
 
+// ✨ จุดแก้ไขที่ 1: ตัด REQUEST- (รายการรออนุมัติ) ออกจากหน้าประวัติ History
 async function sendUserHistory(targetUid, rt) {
     try {
-        const [reqsRes, earnsRes, memRes] = await Promise.all([
-            supabase.from("point_requests").select("*").eq("line_user_id", targetUid).order("request_at", { ascending: false }).limit(15),
+        const [earnsRes, memRes] = await Promise.all([
+            // ✅ ดึงเฉพาะรายการ Earn ที่สำเร็จแล้วเท่านั้น (รวมถึงรายการที่ Admin Approve มาด้วย)
             supabase.from("qrPointToken").select("*").eq("used_by", targetUid).eq("is_used", true).order("used_at", { ascending: false }).limit(15),
             supabase.from("ninetyMember").select("id").eq("line_user_id", targetUid).maybeSingle()
         ]);
@@ -239,7 +254,7 @@ async function sendUserHistory(targetUid, rt) {
             redeems = rdm || [];
         }
         let allTx = [
-            ...(reqsRes.data || []).map(r => ({ label: `REQUEST-`, pts: `+${r.points}`, time: r.request_at, color: "#4267B2" })),
+            // ✅ ตัด REQUEST_ ค้างไว้ออกไป ตามสั่ง
             ...(earnsRes.data || []).map(e => ({ label: `EARN${e.machine_id || '-'}`, pts: `+${e.point_get}`, time: e.used_at || e.create_at, color: "#00b900" })),
             ...(redeems || []).map(u => {
                 const isRefund = u.status === 'refunded';
@@ -264,51 +279,27 @@ async function sendUserHistory(targetUid, rt) {
 }
 
 /* ============================================================
-   5. UTILS - แก้ไขเฉพาะจุด LIST ADMIN (listAdminsWithDelete)
+   5. UTILS - คงเดิม (มีแก้ไข Layout Admin List ตามล่าสุดที่คุยกัน)
 ============================================================ */
 async function sendAdminDashboard(rt) {
   const flex = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#1c1c1c", contents: [{ type: "text", text: "NINETY God Mode", color: "#00b900", weight: "bold", size: "xl" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "button", style: "primary", color: "#333333", action: { type: "message", label: "⚙️ MANAGE ADMIN", text: "MANAGE_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "📊 ACTIVITY REPORT", text: "REPORT" } }, { type: "button", style: "primary", color: "#ff9f00", action: { type: "message", label: "💰 SET EXCHANGE RATIO", text: "SET_RATIO_STEP1" } }] } };
   await sendFlex(rt, "God Mode", flex);
 }
-
 async function sendManageAdminFlex(rt) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "⚙️ ADMIN SETTINGS", weight: "bold", size: "lg" }, { type: "button", style: "secondary", action: { type: "message", label: "📋 LIST & REMOVE ADMIN", text: "LIST_ADMIN" } }, { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "➕ ADD NEW ADMIN", text: "ADD_ADMIN_STEP1" } }] } };
   await sendFlex(rt, "Admin Settings", flex);
 }
-
-// ✨ ปรับแก้จุด List Admin: อักษรใหญ่ขึ้น จัดกึ่งกลางบรรทัด และปุ่ม DEL สั้นกระชับ
 async function listAdminsWithDelete(rt) {
   const { data: adms } = await supabase.from("bot_admins").select("*");
   const adminRows = (adms || []).map(a => ({ 
-      type: "box", 
-      layout: "horizontal", 
-      margin: "md", 
-      alignItems: "center", // ✅ จัดให้อยู่กึ่งกลางบรรทัดแนวตั้ง
+      type: "box", layout: "horizontal", margin: "md", alignItems: "center",
       contents: [
-          { 
-              type: "text", 
-              text: `👤 ${a.admin_name}`, 
-              size: "sm", // ✅ ขยายอักษรให้ใหญ่ขึ้น
-              flex: 5, 
-              gravity: "center" // ✅ จัดกึ่งกลางข้อความ
-          },
-          { 
-              type: "button", 
-              style: "primary", 
-              color: "#ff4b4b", 
-              height: "sm", 
-              flex: 2, 
-              action: { 
-                  type: "message", 
-                  label: "DEL", // ✅ ใช้คำว่า DEL อย่างเดียวเพื่อให้แสดงผลครบ
-                  text: `DEL_ADMIN_ID ${a.line_user_id}` 
-              } 
-          }
+          { type: "text", text: `👤 ${a.admin_name}`, size: "sm", flex: 5, gravity: "center" }, 
+          { type: "button", style: "primary", color: "#ff4b4b", height: "sm", flex: 2, action: { type: "message", label: "DEL", text: `DEL_ADMIN_ID ${a.line_user_id}` } }
       ] 
   }));
   await sendFlex(rt, "Admin List", { type: "bubble", body: { type: "box", layout: "vertical", contents: [{ type: "text", text: "🔐 ADMIN LIST", weight: "bold", size: "lg", margin: "md" }, ...adminRows] } });
 }
-
 async function sendReply(rt, text) { try { await axios.post("https://api.line.me/v2/bot/message/reply", { replyToken: rt, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Reply Error:", e.response?.data); }}
 async function sendReplyPush(to, text) { try { await axios.post("https://api.line.me/v2/bot/message/push", { to, messages: [{ type: "text", text }] }, { headers: { 'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}` }}); } catch (e) { console.error("Push Error:", e.response?.data); }}
 async function sendFlex(rt, alt, contents) { 
